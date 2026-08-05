@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <!-- 名前空間は WPF 版から変えない。移植したファイルをそのまま使えるようにするため。 -->
+    <RootNamespace>MindMap</RootNamespace>
+    <AssemblyName>MindMap.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- UI 部品は入れない。ここは画面の枠組みに依存しない層。 -->
+    <PackageReference Include="ReactiveUI" Version="20.1.63" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,19 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="MindMap.Views.MessageDialog"
+        Title="MindMap"
+        Width="440"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner">
+
+    <!-- OS ごとの標準ダイアログは Avalonia に無いので、同じ見た目のものを自前で用意する。 -->
+    <StackPanel Margin="24,20" Spacing="20">
+        <TextBlock Name="MessageText" TextWrapping="Wrap" LineHeight="20" />
+        <StackPanel Name="Buttons"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right"
+                    Spacing="8" />
+    </StackPanel>
+</Window>

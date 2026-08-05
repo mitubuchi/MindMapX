@@ -16,13 +16,21 @@ public sealed class MainWindowViewModel : ReactiveObject
 {
     private readonly ObservableAsPropertyHelper<string> _title;
 
+    /// <summary>クリップボードの読み書き。OS ごとに違うので UI 側から受け取り、各タブへ配る。</summary>
+    private readonly INodeClipboard _clipboard;
+
     /// <summary>「無題 1」「無題 2」… と通し番号を振るための連番。</summary>
     private int _untitledCounter;
 
     private DocumentViewModel? _activeDocument;
 
-    public MainWindowViewModel()
+    /// <param name="clipboard">
+    /// 省略すると何もしないクリップボードになる（画面につながっていない状態でも組み立てられるように）。
+    /// </param>
+    public MainWindowViewModel(INodeClipboard? clipboard = null)
     {
+        _clipboard = clipboard ?? NullNodeClipboard.Instance;
+
         var hasActiveDocument = this.WhenAnyValue(x => x.ActiveDocument).Select(d => d is not null);
 
         // 未保存のタブが 1 つでもあるときだけ「すべて保存」を押せるようにする。
@@ -130,7 +138,13 @@ public sealed class MainWindowViewModel : ReactiveObject
     }
 
     private DocumentViewModel CreateDocument() =>
-        new($"無題 {++_untitledCounter}", ShowSaveFileDialog, ShowLinkFileDialog, ConfirmSaveChanges, ShowError);
+        new(
+            $"無題 {++_untitledCounter}",
+            ShowSaveFileDialog,
+            ShowLinkFileDialog,
+            ConfirmSaveChanges,
+            ShowError,
+            _clipboard);
 
     private void AddDocument(DocumentViewModel document)
     {

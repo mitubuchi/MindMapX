@@ -1,0 +1,175 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:conv="using:MindMap.Converters"
+                    xmlns:res="using:MindMap.Resources">
+
+    <!--
+        WPF 版の Style + Trigger にあたるもの。Avalonia には Trigger が無いので、
+        状態はセレクタの擬似クラス（:pointerover など）で、値の出し分けは
+        コンバーターで表す。
+    -->
+
+    <SolidColorBrush x:Key="LinkBrush" Color="#2F80ED" />
+    <SolidColorBrush x:Key="GlyphBrush" Color="#3C4652" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#8A94A0" />
+    <SolidColorBrush x:Key="LineBrush" Color="#9AA5B1" />
+    <SolidColorBrush x:Key="DividerBrush" Color="#E3E8EE" />
+    <SolidColorBrush x:Key="NodeBorderBrush" Color="#C3CBD5" />
+    <SolidColorBrush x:Key="CanvasBrush" Color="#F4F6F8" />
+    <SolidColorBrush x:Key="BodyBrush" Color="#5B6673" />
+
+    <!--
+        ツールバーのボタン。アイコンは Tag に入れる（ラベルはツールチップに出すので
+        Content は使わない）。無効なときはアイコンごと淡くする。
+    -->
+    <ControlTheme x:Key="ToolBarButton" TargetType="Button">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="4">
+                    <Path Name="Glyph"
+                          Data="{TemplateBinding Tag}"
+                          Width="16"
+                          Height="16"
+                          Stretch="Uniform"
+                          Stroke="{StaticResource GlyphBrush}"
+                          StrokeThickness="1.6"
+                          StrokeJoin="Round"
+                          StrokeLineCap="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#DDE3EA" />
+        </Style>
+        <Style Selector="^:pressed /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#C3CBD5" />
+        </Style>
+        <Style Selector="^:disabled /template/ Path#Glyph">
+            <Setter Property="Opacity" Value="0.35" />
+        </Style>
+    </ControlTheme>
+
+    <!--
+        ノードのタイトル脇に出すリンクボタン。
+        ファイルへのリンクは、関連付けられたアプリのアイコンを出す（引ける OS のみ）。
+        引けないときは種類ごとの線画に切り替える。
+    -->
+    <ControlTheme x:Key="NodeLinkButton" TargetType="Button">
+        <Setter Property="Width" Value="22" />
+        <Setter Property="Height" Value="22" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="3">
+                    <Panel>
+                        <Image Name="AppIcon"
+                               Width="18"
+                               Height="18"
+                               Source="{Binding Link, Converter={x:Static conv:AppConverters.LinkIcon}}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                        <Path Name="Glyph"
+                              Data="{Binding Link, Converter={x:Static conv:AppConverters.LinkGlyph}}"
+                              IsVisible="{Binding #AppIcon.Source, Converter={x:Static ObjectConverters.IsNull}}"
+                              Width="16"
+                              Height="16"
+                              Stretch="Uniform"
+                              Stroke="{StaticResource LinkBrush}"
+                              StrokeThickness="1.7"
+                              StrokeJoin="Round"
+                              StrokeLineCap="Round"
+                              HorizontalAlignment="Center"
+                              VerticalAlignment="Center" />
+                    </Panel>
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#E4EEFC" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ノードのタイトル脇に出す、表示の大小を切り替えるボタン。 -->
+    <ControlTheme x:Key="NodeToggleButton" TargetType="Button">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="3">
+                    <Path Name="Glyph"
+                          Data="{Binding IsCollapsed, Converter={x:Static conv:AppConverters.CollapseGlyph}}"
+                          Width="12"
+                          Height="12"
+                          Stretch="Uniform"
+                          Stroke="{StaticResource MutedBrush}"
+                          StrokeThickness="1.7"
+                          StrokeJoin="Round"
+                          StrokeLineCap="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#DDE3EA" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Path#Glyph">
+            <Setter Property="Stroke" Value="{StaticResource GlyphBrush}" />
+        </Style>
+    </ControlTheme>
+
+    <!-- タブを閉じるボタン。ふだんは控えめに、ホバーで背景を出す。 -->
+    <ControlTheme x:Key="TabCloseButton" TargetType="Button">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="3">
+                    <Path Name="Glyph"
+                          Data="{x:Static res:Icons.Close}"
+                          Width="9"
+                          Height="9"
+                          Stretch="Uniform"
+                          Stroke="{StaticResource MutedBrush}"
+                          StrokeThickness="1.8"
+                          StrokeLineCap="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#DDE3EA" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Path#Glyph">
+            <Setter Property="Stroke" Value="{StaticResource GlyphBrush}" />
+        </Style>
+    </ControlTheme>
+
+</ResourceDictionary>

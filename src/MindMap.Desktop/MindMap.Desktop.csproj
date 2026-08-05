@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <RootNamespace>MindMap.Desktop</RootNamespace>
+    <AssemblyName>MindMap</AssemblyName>
+    <Product>MindMap</Product>
+    <Company>MindMap</Company>
+    <Version>0.1.0</Version>
+    <Copyright>Copyright © 2026</Copyright>
+
+    <!-- Windows 以外では単に無視される。 -->
+    <ApplicationIcon>..\MindMap.App\Assets\app.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MindMap.App\MindMap.App.csproj" />
+  </ItemGroup>
+
+</Project>

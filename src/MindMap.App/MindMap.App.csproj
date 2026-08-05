@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <RootNamespace>MindMap</RootNamespace>
+    <AssemblyName>MindMap.App</AssemblyName>
+
+    <!-- どの OS 向けの実行形からも参照される共通の画面。ここには OS 固有のコードを置かない。 -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.3.9" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.9" />
+    <PackageReference Include="Avalonia.ReactiveUI" Version="11.3.9" />
+
+    <!--
+      Windows で関連付けられたアプリのアイコンを取り出すときだけ使う。
+      他の OS では呼ばないので、実行時に触れることはない。
+    -->
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\MindMap.Core\MindMap.Core.csproj" />
+  </ItemGroup>
+
+</Project>

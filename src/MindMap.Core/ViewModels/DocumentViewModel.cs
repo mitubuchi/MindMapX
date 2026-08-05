@@ -37,6 +37,9 @@ public sealed class DocumentViewModel : ReactiveObject
     private readonly Interaction<string, SaveChangesResult> _confirmSaveChanges;
     private readonly Interaction<string, Unit> _showError;
 
+    /// <summary>クリップボードの読み書き。OS ごとに違うので UI 側から受け取る。</summary>
+    private readonly INodeClipboard _clipboard;
+
     /// <summary>まだ保存していないドキュメントのタブ名。</summary>
     private readonly string _untitledName;
 
@@ -57,13 +60,15 @@ public sealed class DocumentViewModel : ReactiveObject
         Interaction<string?, string?> showSaveFileDialog,
         Interaction<Unit, string?> showLinkFileDialog,
         Interaction<string, SaveChangesResult> confirmSaveChanges,
-        Interaction<string, Unit> showError)
+        Interaction<string, Unit> showError,
+        INodeClipboard clipboard)
     {
         _untitledName = untitledName;
         _showSaveFileDialog = showSaveFileDialog;
         _showLinkFileDialog = showLinkFileDialog;
         _confirmSaveChanges = confirmSaveChanges;
         _showError = showError;
+        _clipboard = clipboard;
 
         var hasSelection = this.WhenAnyValue(x => x.SelectedNode).Select(node => node is not null);
 
@@ -105,9 +110,10 @@ public sealed class DocumentViewModel : ReactiveObject
         AddSiblingCommand = ReactiveCommand.Create(AddSibling, canEditStructure);
         DeleteNodeCommand = ReactiveCommand.Create(DeleteSelection, canDelete);
         BeginEditCommand = ReactiveCommand.Create(BeginEditSelectedNode, hasSelection);
-        CutCommand = ReactiveCommand.Create(CutSelection, canDelete);
-        CopyCommand = ReactiveCommand.Create(CopySelection, canCopy);
-        PasteCommand = ReactiveCommand.Create(Paste, notEditing);
+        // クリップボードの読み書きは OS によっては待ちが入るので、非同期のコマンドにする。
+        CutCommand = ReactiveCommand.CreateFromTask(CutSelectionAsync, canDelete);
+        CopyCommand = ReactiveCommand.CreateFromTask(CopySelectionAsync, canCopy);
+        PasteCommand = ReactiveCommand.CreateFromTask(PasteAsync, notEditing);
         SelectAllCommand = ReactiveCommand.Create(SelectAll, notEditing);
         ToggleCollapseCommand = ReactiveCommand.Create<NodeViewModel>(ToggleCollapse);
         UndoCommand = ReactiveCommand.Create(_history.Undo, this.WhenAnyValue(x => x.CanUndo));
@@ -872,16 +878,16 @@ public sealed class DocumentViewModel : ReactiveObject
 
     // ------------------------------------------------------------ 切り取り・コピー・貼り付け
 
-    private void CopySelection()
+    private async Task CopySelectionAsync()
     {
         var roots = SelectionRoots();
         if (roots.Count > 0)
         {
-            NodeClipboardService.Write(BuildFragment(roots));
+            await _clipboard.WriteAsync(BuildFragment(roots));
         }
     }
 
-    private void CutSelection()
+    private async Task CutSelectionAsync()
     {
         // ルートは消せないので、コピーする範囲も実際に消えるものだけに揃える
         // （貼り付けたら元にもある、という食い違いを作らないため）。
@@ -891,7 +897,7 @@ public sealed class DocumentViewModel : ReactiveObject
             return;
         }
 
-        NodeClipboardService.Write(BuildFragment(roots));
+        await _clipboard.WriteAsync(BuildFragment(roots));
         DeleteSelection();
     }
 
@@ -899,9 +905,9 @@ public sealed class DocumentViewModel : ReactiveObject
     /// クリップボードのノードを、選択中のノード（無ければルート）の子として貼り付ける。
     /// 別のファイルからのものでも、Id を振り直すので同じ手順で貼り込める。
     /// </summary>
-    private void Paste()
+    private async Task PasteAsync()
     {
-        if (NodeClipboardService.Read() is not { Nodes.Count: > 0 } fragment)
+        if (await _clipboard.ReadAsync() is not { Nodes.Count: > 0 } fragment)
         {
             return;
         }

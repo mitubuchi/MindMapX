@@ -1,32 +1,85 @@
-# MindMap
+# MindMapX
 
-C# / WPF 製のマインドマップ作成アプリケーション。ノードを自由に配置してツリー状に
-つなぎ、`.mindmap`（JSON）ファイルとして保存・読み込みできます。
+マインドマップ作成アプリのマルチプラットフォーム版。C# / [Avalonia UI](https://avaloniaui.net/) で作られており、
+Windows / macOS / Linux で同じコードが動きます（Android / iOS も同じ構成のまま追加できます）。
 
-MVVM フレームワークに [ReactiveUI](https://www.reactiveui.net/) を使用しています。
+WPF 製の Windows 版 [MindMap](https://github.com/mitubuchi/MindMap) から派生したプロジェクトです。
+Git の履歴もそのまま引き継いでいます。
 
-## 主な機能
+## いまの状態
 
-- **ノード編集** — 追加（子 / 兄弟）、その場編集、部分木ごとの削除、ドラッグでの移動
-- **複数選択** — Ctrl / Shift + クリック、余白のドラッグ（範囲選択）、Ctrl+A（全選択）で複数のノードをまとめて選択・移動
-- **切り取り / コピー / 貼り付け** — 選択したノードを部分木ごと。タブや別ウィンドウの MindMap をまたいで貼り付けられる（クリップボード経由）
-- **タイトルと内容** — 1 行のタイトル（中央寄せ）と、複数行の内容（左寄せ）に分離
-- **リンク** — ノードに URL やファイルへのリンクを設定
-  - URL は既定のブラウザーで開く
-  - ファイルは関連付けられたアプリで開く（関連付けが無ければ「プログラムから開く」を表示）
-  - リンク先が `.mindmap` ファイルなら、新しいタブで開く
-  - 設定は右クリックメニュー・ファイル選択・ブラウザー/エクスプローラーからのドラッグに対応
-  - タイトル脇のアイコンは、リンク先の種類に合わせて変わる。ファイルは関連付けられたアプリの
-    アイコン、マインドマップ・フォルダー・メールはそれぞれの線画アイコン、Web はリンク記号
-    （種類が分からないものは疑問符）
-- **子ノードの切り出し** — ノードを右クリック →「子ノードを別のファイルに保存」で、その部分木を別の
-  `.mindmap` ファイルへ。ノードのコピーが切り出し先のルートになり、元のノードとの間に相互リンクが張られる。
-  元のファイルからは子ノードが消える（Undo で戻せる）
-- **複数ドキュメント** — タブで複数のマップを同時に開ける
-- **Undo / Redo** — 追加・削除・編集・移動・リンク設定をまとめて元に戻せる
-- **表示** — ズーム（Ctrl+ホイール）、パン（中ボタンドラッグ）、ノードの自動サイズ調整
-- **ファイル入出力** — 新規・開く・保存・名前を付けて保存・すべて保存（開いているタブの未保存ぶんをまとめて）。未保存のまま閉じると確認
-- **ファイルの関連付け** — `.mindmap` を MindMap で開けるようインストーラーが登録。既定のアプリに設定すれば、ダブルクリックでそのまま開く
+Desktop（Windows / macOS / Linux）向けの移植が動く状態です。
+
+| 機能 | 状態 |
+|---|---|
+| ノードの追加（子 / 兄弟）・その場編集・部分木削除・ドラッグ移動 | ✅ |
+| 複数選択（Ctrl / Shift + クリック、余白のドラッグ、Ctrl+A） | ✅ |
+| 切り取り / コピー / 貼り付け（タブ・ウィンドウをまたいで可） | ✅ |
+| タイトルと内容の分離表示・表示の折りたたみ | ✅ |
+| ノードへのリンクと、種類に応じたアイコン | ✅ |
+| 子ノードを別のファイルに切り出し（相互リンク付き） | ✅ |
+| 複数ドキュメントのタブ・すべて保存 | ✅ |
+| Undo / Redo、ズーム、パン | ✅ |
+| `.mindmap`（JSON）の保存・読み込み | ✅ |
+| ブラウザー / ファイラーからのドラッグ&ドロップ | ⏳ OS ごとの実装が必要 |
+| インストーラー・`.mindmap` の関連付け | ⏳ OS ごとのパッケージングが必要 |
+| Android / iOS 向けの画面 | ⏳ タッチ操作の設計から |
+
+リンクのアイコンは、ファイルへのリンクなら関連付けられたアプリのもの（Windows のみ）、
+それ以外は種類ごとの線画（マインドマップ・フォルダー・メール・Web・不明）になります。
+Windows 以外ではファイルも線画のアイコンで表示されます。
+
+## プロジェクト構成
+
+画面の枠組みに依存しない部分を `MindMap.Core` に分けてあります。OS を増やすときは
+実行形（`MindMap.Desktop` にあたるもの）を足すだけで、この 2 つはそのまま使えます。
+
+```
+src/
+├─ MindMap.Core/      UI に依存しない層（どのプラットフォームでも共通）
+│   ├─ Models/        保存されるデータ構造
+│   ├─ Services/      ファイル入出力・リンクの判定・クリップボードの形式
+│   ├─ ViewModels/    画面ロジック（アプリ全体 / ドキュメント / ノード）
+│   └─ Undo/          Undo/Redo の履歴管理
+├─ MindMap.App/       Avalonia の画面（すべての OS で共通）
+│   ├─ Views/         ウィンドウとダイアログ
+│   ├─ Resources/     アイコン（線画）とコントロールのテーマ
+│   ├─ Converters/    表示のための変換
+│   └─ Services/      クリップボード・リンクの起動・アイコンの取り出し
+└─ MindMap.Desktop/   Windows / macOS / Linux 用の実行形（起動するだけの薄い層）
+```
+
+OS ごとに違う部分（クリップボード、リンクの開き方、アイコンの取り出し方）は
+インターフェース越しに差し込む形にしてあり、`MindMap.Core` からは OS が見えません。
+
+## 動作環境
+
+- [.NET 9 SDK](https://dotnet.microsoft.com/download)
+- Windows / macOS / Linux
+
+## ビルドと実行
+
+```sh
+dotnet run --project src/MindMap.Desktop
+```
+
+配布用（.NET のインストール不要な自己完結ビルド）は、対象を指定して publish します。
+
+```sh
+# Windows
+dotnet publish src/MindMap.Desktop -c Release -r win-x64 --self-contained true -o publish/win-x64
+
+# macOS（Apple Silicon / Intel）
+dotnet publish src/MindMap.Desktop -c Release -r osx-arm64 --self-contained true -o publish/osx-arm64
+dotnet publish src/MindMap.Desktop -c Release -r osx-x64 --self-contained true -o publish/osx-x64
+
+# Linux
+dotnet publish src/MindMap.Desktop -c Release -r linux-x64 --self-contained true -o publish/linux-x64
+```
+
+macOS 向けの成果物は Windows 上でも作れますが、動作確認には実機が要ります。
+GitHub Actions で 3 つの OS のビルドを回しているので、Mac を持っていなくても
+成果物を得られます（Actions の Artifacts から取得）。
 
 ## キーボード操作
 
@@ -40,10 +93,6 @@ MVVM フレームワークに [ReactiveUI](https://www.reactiveui.net/) を使�
 | `Ctrl+Z` / `Ctrl+Y` | 元に戻す / やり直し |
 | `Ctrl+X` / `Ctrl+C` / `Ctrl+V` | 切り取り / コピー / 貼り付け |
 | `Ctrl+A` | すべてのノードを選択 |
-| `Tab` / `Insert` | 子ノードを追加 |
-| `Enter` | 兄弟ノードを追加 |
-| `F2` | 選択中のノードを編集 |
-| `Delete` | 選択中のノードとその子孫を削除 |
 | `Ctrl` + `+` / `-` / `0` | 拡大 / 縮小 / 等倍 |
 
 ノードの編集中は、タイトル欄で `Enter` を押すと内容欄へ移動し、`Ctrl+Enter` で確定、
@@ -52,82 +101,13 @@ MVVM フレームワークに [ReactiveUI](https://www.reactiveui.net/) を使�
 複数選択は、`Ctrl+クリック` で 1 つずつ足し引き、`Shift+クリック` で追加、
 何もない余白をドラッグすると範囲選択できます。複数選んだままドラッグすると、まとめて移動します。
 
-## 動作環境
-
-- Windows
-- [.NET 9 SDK](https://dotnet.microsoft.com/download)
-
-## ビルドと実行
-
-```sh
-dotnet build MindMap.sln
-dotnet run --project src/MindMap
-```
-
-Visual Studio 2022 で `MindMap.sln` を開いて F5 でも実行できます。
-
-## インストーラーの作成
-
-Windows 用のインストーラー（自己完結・.NET 不要）を作るには、[Inno Setup](https://jrsoftware.org/isinfo.php) が必要です。
-
-```sh
-# 1. 自己完結ビルドを出力
-dotnet publish src/MindMap/MindMap.csproj -c Release -r win-x64 --self-contained true -o publish/win-x64
-
-# 2. インストーラーをコンパイル（ISCC.exe のパスは環境に合わせる）
-ISCC.exe installer/MindMap.iss
-```
-
-`installer/Output/MindMap-1.3.1-Setup.exe` が生成されます。管理者権限なしでユーザー領域に
-インストールでき、スタートメニュー登録とアンインストーラーが付きます。
-
-### ファイルの関連付け
-
-インストーラーは `.mindmap` を MindMap に関連付けるための情報を登録します
-（管理者権限なしでインストールした場合は、そのユーザーにのみ適用されます）。
-
-ただし Windows 10 / 11 では、既定のアプリをインストーラーから自動で決めることはできません。
-初回のみ、次のいずれかで MindMap を選んでください。
-
-- `.mindmap` ファイルを右クリック →「プログラムから開く」→「別のプログラムを選択」→ MindMap を選び、「常にこのアプリを使う」にチェック
-- 設定 →「アプリ」→「既定のアプリ」→ ファイルの種類で `.mindmap` を MindMap に設定
-
-以降はダブルクリックでそのまま開けます。コマンドラインからも
-`MindMap.exe "path\to\file.mindmap"` の形でファイルを指定して起動できます
-（複数指定すると、それぞれ別のタブで開きます）。
-
-### ポータブル ZIP
-
-インストールせずに使いたい場合は、ZIP 版を作成できます（Inno Setup 不要）。
-
-```sh
-# 自己完結ビルドを出力してから
-dotnet publish src/MindMap/MindMap.csproj -c Release -r win-x64 --self-contained true -o publish/win-x64
-
-# ZIP にまとめる
-powershell -ExecutionPolicy Bypass -File installer/package-zip.ps1
-```
-
-`installer/Output/MindMap-1.3.1-win-x64.zip` が生成されます。展開してできる `MindMap`
-フォルダー内の `MindMap.exe` を実行するだけで動きます。
-
-ビルド済みのインストーラーと ZIP は [Releases](../../releases) からダウンロードできます。
-
 ## ファイル形式
 
 `.mindmap` ファイルは JSON です。ノードは親子関係を `ParentId` で表すフラットな配列として
-保持します。形式のバージョンは後方互換で、古いバージョンのファイルもそのまま開けます。
+保持します。形式は Windows 版（MindMap）と同じなので、どちらのアプリでも読み書きできます。
 
-## プロジェクト構成
+## これから
 
-```
-src/MindMap/
-├─ Models/           保存されるデータ構造
-├─ Services/         ファイル入出力・リンク解釈
-├─ ViewModels/       画面ロジック（アプリ全体 / ドキュメント / ノード）
-├─ Converters/       XAML 用のコンバーター
-├─ Undo/             Undo/Redo の履歴管理
-├─ Resources/        アイコンなどのリソース
-├─ App.xaml          エントリポイント
-└─ MainWindow.xaml   メインウィンドウ
-```
+- ドラッグ&ドロップ（OS ごとのデータ形式に対応）
+- 各 OS のパッケージング（Windows: インストーラー、macOS: `.app` / `.dmg`、Linux: AppImage）
+- Android / iOS の実行形と、タッチ操作に合わせた画面
