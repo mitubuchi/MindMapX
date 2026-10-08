@@ -1,8 +1,10 @@
 using System.Reactive;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 using Avalonia.Markup.Xaml;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
@@ -41,12 +43,20 @@ public partial class MainWindow : Window
     /// <summary>スクロール位置を復元している間は、その動きを記録し返さないようにする。</summary>
     private bool _restoringScroll;
 
+    /// <summary>設定ウィンドウを開いている最中か。続けて押されても 1 枚しか出さない。</summary>
+    private bool _settingsPending;
+
     /// <summary>未保存確認のために閉じるのを一度キャンセルするので、二周目を見分けるフラグ。</summary>
     private bool _closeConfirmed;
 
     public MainWindow()
     {
         InitializeComponent();
+
+        // ファイラーやブラウザーからのドロップ。ノードの上ならリンクの差し替え、
+        // 余白ならその場所に新しいノードを作る（どちらに落ちたかは落ちた先から辿って決める）。
+        AddHandler(DragDrop.DragOverEvent, OnDragOver);
+        AddHandler(DragDrop.DropEvent, OnDrop);
     }
 
     private void InitializeComponent() => AvaloniaXamlLoader.Load(this);
@@ -141,6 +151,36 @@ public partial class MainWindow : Window
             context.SetOutput(Unit.Default);
         });
 
+        viewModel.ShowSettings.RegisterHandler(async context =>
+        {
+            // 設定ウィンドウを出している間も呼び出し元は待たせない（WPF 版と同じく、閉じるのを待たない）。
+            context.SetOutput(Unit.Default);
+
+            if (_settingsPending)
+            {
+                return;
+            }
+
+            _settingsPending = true;
+            try
+            {
+                await new SettingsWindow().ShowDialog<bool>(this);
+            }
+            finally
+            {
+                _settingsPending = false;
+            }
+        });
+
+        viewModel.MeasureNodes.RegisterHandler(context =>
+        {
+            // ノードの幅と高さは、描いてみて初めて決まる（Node_SizeChanged が返す）。
+            // 本文を隠した直後はまだ古い値なので、ここで一度レイアウトを回して
+            // SizeChanged を出させ、新しい大きさを ViewModel に届ける。
+            UpdateLayout();
+            context.SetOutput(Unit.Default);
+        });
+
         viewModel.OpenExternal.RegisterHandler(async context =>
         {
             if (LinkLauncher.Open(context.Input) is { } error)
@@ -178,8 +218,25 @@ public partial class MainWindow : Window
     private void Node_PointerPressed(object? sender, PointerPressedEventArgs e)
     {
         if (sender is not Control { DataContext: NodeViewModel node } element
-            || ActiveDocument is not { } document
-            || !e.GetCurrentPoint(element).Properties.IsLeftButtonPressed)
+            || ActiveDocument is not { } document)
+        {
+            return;
+        }
+
+        // 右クリックではそのノードを選んでおく（コンテキストメニューの対象を確定させる）。
+        // すでに複数選択に入っているノードなら、選択を崩さずそのまま対象にする。
+        // メニューを開くのは Avalonia に任せるので、ここでは押されたことを止めない。
+        if (e.GetCurrentPoint(element).Properties.IsRightButtonPressed)
+        {
+            if (!document.SelectedNodes.Contains(node))
+            {
+                document.SelectedNode = node;
+            }
+
+            return;
+        }
+
+        if (!e.GetCurrentPoint(element).Properties.IsLeftButtonPressed)
         {
             return;
         }
@@ -224,8 +281,10 @@ public partial class MainWindow : Window
             return;
         }
 
+        // 親を動かすと子も付いてくるので、親と子を両方選んだままドラッグしても
+        // 動かすのは最上位だけにする（両方動かすと子に移動量が二重に掛かる）。
         var moving = document.SelectedNodes.Contains(node)
-            ? document.SelectedNodes.ToList()
+            ? document.SelectionRoots()
             : [node];
 
         _dragOrigins = moving.Select(n => (Node: n, n.X, n.Y)).ToList();
@@ -250,9 +309,9 @@ public partial class MainWindow : Window
         // キャンバスの外にノードが出て行方不明にならないよう内側に留める。
         // 複数を動かすときは、位置関係が崩れないよう移動量そのものを制限する。
         var minX = _dragOrigins.Max(o => -o.X);
-        var maxX = _dragOrigins.Min(o => Math.Max(0, canvas.Width - o.Node.Width) - o.X);
+        var maxX = _dragOrigins.Min(o => Math.Max(0, canvas.Width - o.Node.WorldWidth) - o.X);
         var minY = _dragOrigins.Max(o => -o.Y);
-        var maxY = _dragOrigins.Min(o => Math.Max(0, canvas.Height - o.Node.Height) - o.Y);
+        var maxY = _dragOrigins.Min(o => Math.Max(0, canvas.Height - o.Node.WorldHeight) - o.Y);
 
         deltaX = Math.Clamp(deltaX, minX, Math.Max(minX, maxX));
         deltaY = Math.Clamp(deltaY, minY, Math.Max(minY, maxY));
@@ -301,6 +360,112 @@ public partial class MainWindow : Window
             ActiveDocument?.ToggleCollapseCommand.Execute(node).Subscribe();
         }
     }
+
+    private void NodeChildren_Click(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (sender is Control { DataContext: NodeViewModel node })
+        {
+            ActiveDocument?.ToggleChildrenCommand.Execute(node).Subscribe();
+        }
+    }
+
+    // ------------------------------------------------------------ ドラッグ&ドロップ
+
+    /// <summary>落とせるものかを見て、カーソルの形を決める。</summary>
+    private void OnDragOver(object? sender, DragEventArgs e)
+    {
+#pragma warning disable CS0618 // ドロップの中身を形式名で引けるのは IDataObject だけ
+        var data = e.Data;
+#pragma warning restore CS0618
+        var accept = DropTargetNode(e) is not null
+            ? DroppedLink.Extract(data) is not null
+            : DropTargetCanvas(e) is not null
+              && (DroppedLink.ExtractFiles(data).Count > 0 || DroppedLink.ExtractUrls(data).Count > 0);
+
+        e.DragEffects = accept ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// ノードの上なら、ブラウザーの URL やファイルをそのノードのリンクにする。
+    /// 余白なら、落とされたファイルや URL をその場所にノードとして作る。
+    /// </summary>
+    private void OnDrop(object? sender, DragEventArgs e)
+    {
+        if (ActiveDocument is not { } document)
+        {
+            return;
+        }
+
+#pragma warning disable CS0618
+        var data = e.Data;
+#pragma warning restore CS0618
+
+        if (DropTargetNode(e) is { } node)
+        {
+            if (DroppedLink.Extract(data) is { } link)
+            {
+                document.SetLink(node, link);
+                document.SelectedNode = node;
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (DropTargetCanvas(e) is not { } canvas)
+        {
+            return;
+        }
+
+        // ファイルが来ているときは ExtractUrls が空を返すので、取り違えは起きない。
+        var files = DroppedLink.ExtractFiles(data);
+        var urls = DroppedLink.ExtractUrls(data);
+
+        if (files.Count == 0 && urls.Count == 0)
+        {
+            return;
+        }
+
+        // 落とした位置に置く。キャンバスの外にはみ出して行方不明にならないよう内側に留める。
+        var point = e.GetPosition(canvas);
+        var x = Math.Clamp(point.X, 0, Math.Max(0, canvas.Width - NodeViewModel.DefaultWidth));
+        var y = Math.Clamp(point.Y, 0, Math.Max(0, canvas.Height - NodeViewModel.DefaultHeight));
+
+        if (files.Count > 0)
+        {
+            document.AddFileNodes(files, x, y);
+        }
+        else
+        {
+            document.AddLinkNodes(urls, x, y);
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>落とされた先のノード。ノードの枠（Classes="node"）の中でなければ null。</summary>
+    private static NodeViewModel? DropTargetNode(DragEventArgs e)
+    {
+        for (var current = e.Source as Visual; current is not null; current = current.GetVisualParent())
+        {
+            if (current is Border { DataContext: NodeViewModel node } border && border.Classes.Contains("node"))
+            {
+                return node;
+            }
+
+            if (current is Control { Name: "CanvasRoot" })
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>落とされた先のキャンバス。タブの中身の外（ツールバーやビューア欄）なら null。</summary>
+    private static Control? DropTargetCanvas(DragEventArgs e) =>
+        e.Source is Visual source ? FindNamedAncestor(source, "CanvasRoot") : null;
 
     // ------------------------------------------------------------ 範囲選択
 
@@ -366,7 +531,8 @@ public partial class MainWindow : Window
         if (_bandDocument is { } document && (band.Width >= 3 || band.Height >= 3))
         {
             var hits = document.Nodes
-                .Where(n => band.Intersects(new Rect(n.X, n.Y, n.Width, n.Height)))
+                .Where(n => n.IsVisible)
+                .Where(n => band.Intersects(new Rect(n.X, n.Y, n.WorldWidth, n.WorldHeight)))
                 .ToList();
 
             document.SelectNodes(hits, _bandAdditive);
@@ -508,12 +674,56 @@ public partial class MainWindow : Window
             () =>
             {
                 var focused = FocusManager?.GetFocusedElement() as Visual;
-                if (focused is null || !panel.IsVisualAncestorOf(focused))
+                if (focused is not null && panel.IsVisualAncestorOf(focused))
                 {
-                    node.IsEditing = false;
+                    return;
                 }
+
+                // 編集欄の右クリックメニューを開くと、フォーカスはメニューへ移る。
+                // ここで確定すると欄が消えて、メニューの切り取りや貼り付けが届かなくなる。
+                // 編集は続けたままにして、メニューを閉じたら欄にフォーカスを戻す。
+                if (focused is not null && EditMenuTarget(panel, focused) is { } box)
+                {
+                    ReturnFocusWhenMenuCloses(box, node);
+                    return;
+                }
+
+                node.IsEditing = false;
             },
             DispatcherPriority.Input);
+    }
+
+    /// <summary>
+    /// フォーカスのある要素が、このパネル内の欄から開いた右クリックメニューの中にあれば、その欄。
+    /// メニューの描かれ方は環境で違う（デスクトップでは別の窓、そうでなければウィンドウの
+    /// 重ね描き）ので、visual tree では辿れない。論理ツリーなら、どちらでもメニューの上に
+    /// 「どの部品に付いて開いたか」を持つ Popup がいる。
+    /// </summary>
+    private static TextBox? EditMenuTarget(Control panel, Visual focused) =>
+        focused is ILogical logical
+        && logical.GetLogicalAncestors().OfType<Popup>().FirstOrDefault() is { PlacementTarget: TextBox box }
+        && panel.IsVisualAncestorOf(box)
+            ? box
+            : null;
+
+    /// <summary>右クリックメニューが閉じたら、編集が続いている限り元の欄にフォーカスを戻す。</summary>
+    private static void ReturnFocusWhenMenuCloses(TextBox box, NodeViewModel node)
+    {
+        if (box.ContextFlyout is not { } flyout)
+        {
+            return;
+        }
+
+        void OnClosed(object? sender, EventArgs e)
+        {
+            flyout.Closed -= OnClosed;
+            if (node.IsEditing)
+            {
+                box.Focus();
+            }
+        }
+
+        flyout.Closed += OnClosed;
     }
 
     // ------------------------------------------------------------ スクロールとズーム

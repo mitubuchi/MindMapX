@@ -1,0 +1,101 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:conv="using:MindMap.Converters"
+        xmlns:vm="using:MindMap.ViewModels"
+        x:Class="MindMap.Views.SettingsWindow"
+        x:DataType="vm:SettingsViewModel"
+        Title="設定"
+        Width="640"
+        SizeToContent="Height"
+        CanResize="False"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        FontSize="13">
+    <!--
+        中身は SettingsViewModel が AppSettings.Definitions から組み立てるので、
+        設定項目が増えてもここは変わらない。
+        入力欄は種類ごとに 3 つ用意し、項目の Kind に合うものだけを見せる
+        （WPF 版の DataTemplate の切り替えにあたる）。
+    -->
+    <Grid RowDefinitions="*,Auto">
+        <ScrollViewer Grid.Row="0"
+                      MaxHeight="520"
+                      VerticalScrollBarVisibility="Auto"
+                      Padding="22,20,22,4">
+            <ItemsControl ItemsSource="{Binding Items}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="vm:SettingItemViewModel">
+                        <StackPanel Margin="0,0,0,20">
+                            <!-- 入切は見出しを持たない（チェックボックスの文言がそのまま見出しになる）。 -->
+                            <TextBlock Text="{Binding Label}"
+                                       FontWeight="SemiBold"
+                                       Margin="0,0,0,6"
+                                       IsVisible="{Binding Kind, Converter={x:Static conv:AppConverters.EnumIsNot}, ConverterParameter=Bool}" />
+
+                            <TextBox Text="{Binding Value}"
+                                     Padding="6,4"
+                                     VerticalContentAlignment="Center"
+                                     IsVisible="{Binding Kind, Converter={x:Static conv:AppConverters.EnumIn}, ConverterParameter=Text}" />
+
+                            <!-- フォルダーとファイルは、脇に参照ボタンが付くだけで同じ形。 -->
+                            <Grid ColumnDefinitions="*,Auto"
+                                  IsVisible="{Binding Kind, Converter={x:Static conv:AppConverters.EnumIn}, ConverterParameter=Folder|File}">
+                                <TextBox Text="{Binding Value}"
+                                         Padding="6,4"
+                                         VerticalContentAlignment="Center" />
+                                <Button Grid.Column="1"
+                                        Content="参照..."
+                                        Margin="8,0,0,0"
+                                        Padding="14,4"
+                                        Command="{Binding $parent[Window].DataContext.BrowseCommand}"
+                                        CommandParameter="{Binding}" />
+                            </Grid>
+
+                            <CheckBox Content="{Binding Label}"
+                                      IsChecked="{Binding Flag, Mode=TwoWay}"
+                                      IsVisible="{Binding Kind, Converter={x:Static conv:AppConverters.EnumIn}, ConverterParameter=Bool}" />
+
+                            <TextBlock Text="{Binding Description}"
+                                       Foreground="#777"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,5,0,0"
+                                       IsVisible="{Binding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- 書き込み先を出しておく。テキストエディタで直したい人が場所を探さずに済む。 -->
+        <Border Grid.Row="1"
+                Background="#F4F6F8"
+                BorderBrush="#DDE2E7"
+                BorderThickness="0,1,0,0"
+                Padding="22,12">
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="{Binding FilePath}"
+                           ToolTip.Tip="{Binding FilePath}"
+                           Foreground="#777"
+                           FontSize="11"
+                           TextTrimming="CharacterEllipsis"
+                           VerticalAlignment="Center"
+                           Margin="0,0,16,0" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                    <Button Content="OK"
+                            IsDefault="True"
+                            MinWidth="88"
+                            Padding="12,5"
+                            HorizontalContentAlignment="Center"
+                            Command="{Binding OkCommand}" />
+                    <Button Content="キャンセル"
+                            IsCancel="True"
+                            MinWidth="88"
+                            Padding="12,5"
+                            HorizontalContentAlignment="Center"
+                            Click="Cancel_Click" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

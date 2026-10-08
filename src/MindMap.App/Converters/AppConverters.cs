@@ -34,6 +34,21 @@ public static class AppConverters
     /// </summary>
     public static readonly FuncValueConverter<string?, IImage?> LinkIcon = new(LinkIcons.ForLink);
 
+    /// <summary>子ノードを隠している間は「開く」、出している間は「畳む」印。</summary>
+    public static readonly FuncValueConverter<bool, Geometry> ChildrenGlyph =
+        new(hidden => hidden ? Icons.ExpandChildren : Icons.CollapseChildren);
+
+    /// <summary>
+    /// 列挙の値が ConverterParameter に並べた名前（"Folder|File" のように | 区切り）のどれかか。
+    /// 種類ごとに入力欄を出し分けるのに使う（WPF 版の DataTrigger にあたる）。
+    /// </summary>
+    public static readonly IValueConverter EnumIn = new FuncValueConverter<object?, string?, bool>(
+        (value, names) => value is not null && names is not null && names.Split('|').Contains(value.ToString()));
+
+    /// <summary><see cref="EnumIn"/> の反対。</summary>
+    public static readonly IValueConverter EnumIsNot = new FuncValueConverter<object?, string?, bool>(
+        (value, names) => value is null || names is null || !names.Split('|').Contains(value.ToString()));
+
     /// <summary>展開中は「たたむ」、たたみ中は「広げる」印。</summary>
     public static readonly FuncValueConverter<bool, Geometry> CollapseGlyph =
         new(collapsed => collapsed ? Icons.ChevronDown : Icons.ChevronUp);
@@ -46,6 +61,21 @@ public static class AppConverters
 
     /// <summary>選択中のノードは重なり順を上げ、他のノードに隠れないようにする。</summary>
     public static readonly FuncValueConverter<bool, int> SelectedZIndex = new(selected => selected ? 1000 : 0);
+
+    /// <summary>
+    /// ノードの倍率（祖先の倍率を掛け合わせたもの）。X と Y を 1 つの拡大にまとめる。
+    /// 倍率 1 のノードには変形を付けない（描画のたびに無駄な変形を挟まないため）。
+    /// </summary>
+    public static readonly FuncMultiValueConverter<double, ITransform?> WorldScale = new(values =>
+    {
+        var pair = values.ToArray();
+        if (pair.Length != 2 || (Math.Abs(pair[0] - 1) < 1e-9 && Math.Abs(pair[1] - 1) < 1e-9))
+        {
+            return null;
+        }
+
+        return new ScaleTransform(pair[0], pair[1]);
+    });
 
     /// <summary>接続線の端点。X と Y を 1 つの点にまとめる。</summary>
     public static readonly FuncMultiValueConverter<double, Point> ToPoint = new(values =>

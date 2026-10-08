@@ -28,6 +28,13 @@
         <KeyBinding Gesture="Ctrl+C" Command="{Binding ActiveDocument.CopyCommand}" />
         <KeyBinding Gesture="Ctrl+V" Command="{Binding ActiveDocument.PasteCommand}" />
         <KeyBinding Gesture="Ctrl+A" Command="{Binding ActiveDocument.SelectAllCommand}" />
+        <!-- 編集中はノードの構造を変えるコマンドが無効になるので、キーはそのまま入力欄に届く
+             （Tab は欄の移動、Enter は改行、Delete は文字の削除になる）。 -->
+        <KeyBinding Gesture="Tab" Command="{Binding ActiveDocument.AddChildCommand}" />
+        <KeyBinding Gesture="Insert" Command="{Binding ActiveDocument.AddChildCommand}" />
+        <KeyBinding Gesture="Enter" Command="{Binding ActiveDocument.AddSiblingCommand}" />
+        <KeyBinding Gesture="Delete" Command="{Binding ActiveDocument.DeleteNodeCommand}" />
+        <KeyBinding Gesture="F2" Command="{Binding ActiveDocument.BeginEditCommand}" />
         <KeyBinding Gesture="Ctrl+OemPlus" Command="{Binding ActiveDocument.ZoomInCommand}" />
         <KeyBinding Gesture="Ctrl+OemMinus" Command="{Binding ActiveDocument.ZoomOutCommand}" />
         <KeyBinding Gesture="Ctrl+D0" Command="{Binding ActiveDocument.ResetZoomCommand}" />
@@ -110,6 +117,14 @@
                         Command="{Binding ActiveDocument.DeleteNodeCommand}"
                         Tag="{x:Static res:Icons.Delete}"
                         ToolTip.Tip="削除 (Delete)" />
+                <Button Theme="{StaticResource ToolBarButton}"
+                        Command="{Binding ActiveDocument.ArrangeChildrenVerticalCommand}"
+                        Tag="{x:Static res:Icons.ArrangeVertical}"
+                        ToolTip.Tip="子ノードを縦に整列（本文と孫は隠す）" />
+                <Button Theme="{StaticResource ToolBarButton}"
+                        Command="{Binding ActiveDocument.ArrangeChildrenHorizontalCommand}"
+                        Tag="{x:Static res:Icons.ArrangeHorizontal}"
+                        ToolTip.Tip="子ノードを横に整列（本文と孫は隠す）" />
 
                 <Border Width="1" Margin="5,4" Background="{StaticResource DividerBrush}" />
 
@@ -135,6 +150,16 @@
                               IsChecked="{Binding Viewer.IsVisible, Mode=TwoWay}"
                               Tag="{x:Static res:Icons.Viewer}"
                               ToolTip.Tip="ビューア (F7)" />
+
+                <!--
+                    設定。ツールバーのいちばん右に置く。ここだけはマップの操作ではなく
+                    アプリ全体の話なので、他と離して末尾に固定する。
+                -->
+                <Border Width="1" Margin="5,4" Background="{StaticResource DividerBrush}" />
+                <Button Theme="{StaticResource ToolBarButton}"
+                        Command="{Binding OpenSettingsCommand}"
+                        Tag="{x:Static res:Icons.Settings}"
+                        ToolTip.Tip="設定" />
             </StackPanel>
         </Border>
 
@@ -223,6 +248,7 @@
                             </LayoutTransformControl.LayoutTransform>
 
                             <Panel Name="CanvasRoot"
+                                   DragDrop.AllowDrop="True"
                                    Width="3000"
                                    Height="2000"
                                    Background="Transparent"
@@ -239,7 +265,9 @@
                                     </ItemsControl.ItemsPanel>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="vm:ConnectionViewModel">
-                                            <Line Stroke="{StaticResource LineBrush}" StrokeThickness="2">
+                                            <Line Stroke="{StaticResource LineBrush}"
+                                                  StrokeThickness="2"
+                                                  IsVisible="{Binding IsVisible}">
                                                 <Line.StartPoint>
                                                     <MultiBinding Converter="{x:Static conv:AppConverters.ToPoint}">
                                                         <Binding Path="X1" />
@@ -271,26 +299,46 @@
                                             <Setter Property="Canvas.Top" Value="{Binding Y}" />
                                             <Setter Property="ZIndex"
                                                     Value="{Binding IsSelected, Converter={x:Static conv:AppConverters.SelectedZIndex}}" />
+                                            <!-- 畳んだ祖先がいるノードは消す。一覧から外さず見せないだけにして、
+                                                 開いたときに位置も親子関係も元どおりに戻るようにしてある。 -->
+                                            <Setter Property="IsVisible" Value="{Binding IsVisible}" />
                                         </Style>
                                     </ItemsControl.Styles>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate DataType="vm:NodeViewModel">
-                                            <!-- 幅・高さは指定せず中身に合わせる。MaxWidth を超えたぶんは折り返す。 -->
-                                            <Border MinWidth="120"
+                                            <!-- 幅・高さは指定せず中身に合わせる。MaxWidth を超えたぶんは折り返す。
+                                                 倍率は RenderTransform で掛ける。LayoutTransform だと測り直しが起きて、
+                                                 Node_SizeChanged が返す実測サイズに倍率が二重に掛かる。
+                                                 原点は左上に固定してあるので、画面上の矩形は
+                                                 (X, Y, WorldWidth, WorldHeight) と一致する。 -->
+                                            <Border Classes="node"
+                                                    DragDrop.AllowDrop="True"
+                                                    RenderTransformOrigin="0%,0%"
+                                                    MinWidth="120"
                                                     MaxWidth="320"
                                                     MinHeight="48"
                                                     CornerRadius="8"
                                                     Background="White"
-                                                    BorderBrush="{StaticResource NodeBorderBrush}"
-                                                    BorderThickness="1"
                                                     Cursor="SizeAll"
                                                     Classes.selected="{Binding IsSelected}"
                                                     SizeChanged="Node_SizeChanged"
                                                     PointerPressed="Node_PointerPressed"
                                                     PointerMoved="Node_PointerMoved"
                                                     PointerReleased="Node_PointerReleased">
+                                                <Border.RenderTransform>
+                                                    <MultiBinding Converter="{x:Static conv:AppConverters.WorldScale}">
+                                                        <Binding Path="WorldScaleX" />
+                                                        <Binding Path="WorldScaleY" />
+                                                    </MultiBinding>
+                                                </Border.RenderTransform>
                                                 <Border.Styles>
-                                                    <Style Selector="Border.selected">
+                                                    <!-- 枠の色はスタイルで決める。Border に直接書くと、その値がスタイルより
+                                                         優先されて、選んでも色が変わらなかった。 -->
+                                                    <Style Selector="Border.node">
+                                                        <Setter Property="BorderBrush" Value="{StaticResource NodeBorderBrush}" />
+                                                        <Setter Property="BorderThickness" Value="1" />
+                                                    </Style>
+                                                    <Style Selector="Border.node.selected">
                                                         <Setter Property="BorderBrush" Value="{StaticResource LinkBrush}" />
                                                         <Setter Property="BorderThickness" Value="2" />
                                                     </Style>
@@ -322,7 +370,7 @@
                                                     <StackPanel VerticalAlignment="Center" IsVisible="{Binding !IsEditing}">
                                                         <!-- タイトルの右に、リンクアイコンと表示の大小を切り替えるアイコンが並ぶ。
                                                              どちらも出ないときは右の 2 列が幅 0 になり、タイトルは中央のままになる。 -->
-                                                        <Grid ColumnDefinitions="*,Auto,Auto">
+                                                        <Grid ColumnDefinitions="*,Auto,Auto,Auto">
                                                             <TextBlock Text="{Binding Title}"
                                                                        FontWeight="SemiBold"
                                                                        TextAlignment="Center"
@@ -340,20 +388,61 @@
                                                                     Margin="2,0,0,0"
                                                                     VerticalAlignment="Center"
                                                                     Theme="{StaticResource NodeToggleButton}"
-                                                                    IsVisible="{Binding HasBody}"
+                                                                    IsVisible="{Binding HasBodyContent}"
                                                                     ToolTip.Tip="表示の大小を切り替え（タイトルのみ／本文つき）"
                                                                     Click="NodeToggle_Click" />
+                                                            <!-- 子がいるノードだけ、その先を畳むボタンを出す。 -->
+                                                            <Button Grid.Column="3"
+                                                                    Margin="2,0,0,0"
+                                                                    VerticalAlignment="Center"
+                                                                    Theme="{StaticResource NodeChildrenToggleButton}"
+                                                                    IsVisible="{Binding HasChildren}"
+                                                                    ToolTip.Tip="子ノードの表示を切り替え"
+                                                                    Click="NodeChildren_Click" />
                                                         </Grid>
                                                         <Border Height="1"
                                                                 Margin="0,6"
                                                                 Background="{StaticResource DividerBrush}"
                                                                 IsVisible="{Binding IsBodyVisible}" />
+                                                        <!--
+                                                            本文欄。リンク先が画像や動画なら、文章の代わりに絵を出す
+                                                            （パッケージが絵を作れたときだけ Thumbnail に入る）。
+                                                            出す・出さないの切り替えは文章のときと同じ IsBodyVisible。
+                                                        -->
                                                         <TextBlock Text="{Binding Body}"
                                                                    TextAlignment="Left"
                                                                    TextWrapping="Wrap"
                                                                    FontSize="12"
-                                                                   Foreground="{StaticResource BodyBrush}"
-                                                                   IsVisible="{Binding IsBodyVisible}" />
+                                                                   Foreground="{StaticResource BodyBrush}">
+                                                            <TextBlock.IsVisible>
+                                                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                                                    <Binding Path="IsBodyVisible" />
+                                                                    <Binding Path="!HasThumbnail" />
+                                                                </MultiBinding>
+                                                            </TextBlock.IsVisible>
+                                                        </TextBlock>
+                                                        <!--
+                                                            絵の下地。256 角の白い枠に、縦横比を保ったまま中央に収める
+                                                            （Uniform が縦横比を保ち、余ったぶんが白く残る）。
+                                                        -->
+                                                        <Border Width="256"
+                                                                Height="256"
+                                                                Background="White"
+                                                                BorderBrush="{StaticResource DividerBrush}"
+                                                                BorderThickness="1">
+                                                            <Border.IsVisible>
+                                                                <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                                                    <Binding Path="IsBodyVisible" />
+                                                                    <Binding Path="HasThumbnail" />
+                                                                </MultiBinding>
+                                                            </Border.IsVisible>
+                                                            <Image Source="{Binding Thumbnail}"
+                                                                   Stretch="Uniform"
+                                                                   StretchDirection="DownOnly"
+                                                                   RenderOptions.BitmapInterpolationMode="HighQuality"
+                                                                   HorizontalAlignment="Center"
+                                                                   VerticalAlignment="Center" />
+                                                        </Border>
                                                     </StackPanel>
 
                                                     <!-- 編集：タイトル欄は 1 行のみ。Enter で内容欄に移る。
@@ -368,6 +457,7 @@
                                                                  Background="Transparent"
                                                                  Padding="0"
                                                                  AttachedToVisualTree="TitleBox_AttachedToVisualTree"
+                                                                 ContextFlyout="{StaticResource EditBoxMenu}"
                                                                  KeyDown="EditBox_KeyDown" />
                                                         <Border Height="1" Margin="0,6" Background="{StaticResource DividerBrush}" />
                                                         <TextBox Text="{Binding Body}"
@@ -380,6 +470,7 @@
                                                                  BorderThickness="0"
                                                                  Background="Transparent"
                                                                  Padding="0"
+                                                                 ContextFlyout="{StaticResource EditBoxMenu}"
                                                                  KeyDown="EditBox_KeyDown" />
 
                                                         <!-- リンク欄。本文から Tab で移れる。 -->
@@ -404,7 +495,8 @@
                                                                      Background="Transparent"
                                                                      Padding="0"
                                                                      Watermark="URL やファイルのパス"
-                                                                     KeyDown="EditBox_KeyDown" />
+                                                                     ContextFlyout="{StaticResource EditBoxMenu}"
+                                                                 KeyDown="EditBox_KeyDown" />
                                                         </Grid>
                                                     </StackPanel>
                                                 </Panel>

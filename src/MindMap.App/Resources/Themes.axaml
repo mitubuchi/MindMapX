@@ -23,6 +23,9 @@
         Content は使わない）。無効なときはアイコンごと淡くする。
     -->
     <ControlTheme x:Key="ToolBarButton" TargetType="Button">
+        <!-- フォーカスを取らない（WPF のツールバーと同じ）。取ると Tab がマップではなく
+             ボタンの間の移動に使われ、Enter でボタンが押されてしまう。 -->
+        <Setter Property="Focusable" Value="False" />
         <Setter Property="Width" Value="32" />
         <Setter Property="Height" Value="30" />
         <Setter Property="Background" Value="Transparent" />
@@ -143,6 +146,7 @@
         入っている間は背景を塗って示す。
     -->
     <ControlTheme x:Key="ToolBarToggleButton" TargetType="ToggleButton">
+        <Setter Property="Focusable" Value="False" />
         <Setter Property="Width" Value="32" />
         <Setter Property="Height" Value="30" />
         <Setter Property="Background" Value="Transparent" />
@@ -202,6 +206,70 @@
             <Setter Property="Foreground" Value="White" />
         </Style>
     </ControlTheme>
+
+    <!-- ノードのタイトル脇に出す、子ノードの表示を切り替えるボタン。 -->
+    <ControlTheme x:Key="NodeChildrenToggleButton" TargetType="Button">
+        <Setter Property="Width" Value="18" />
+        <Setter Property="Height" Value="18" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="3">
+                    <Path Name="Glyph"
+                          Data="{Binding AreChildrenHidden, Converter={x:Static conv:AppConverters.ChildrenGlyph}}"
+                          Width="12"
+                          Height="12"
+                          Stretch="Uniform"
+                          Stroke="{StaticResource MutedBrush}"
+                          StrokeThickness="1.7"
+                          StrokeJoin="Round"
+                          StrokeLineCap="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#DDE3EA" />
+        </Style>
+        <Style Selector="^:pointerover /template/ Path#Glyph">
+            <Setter Property="Stroke" Value="{StaticResource GlyphBrush}" />
+        </Style>
+    </ControlTheme>
+
+    <!--
+        ノードの編集欄の右クリックメニュー。Fluent の既定は英語で、元に戻す・すべて選択が無いので
+        WPF 版と同じ並びのものを持たせる。メニューは開くたびに右クリックされた欄に付くので、
+        3 つの欄で 1 つを使い回せる（Fluent の既定のメニューも同じ作り）。
+    -->
+    <MenuFlyout x:Key="EditBoxMenu">
+        <MenuItem Header="元に戻す"
+                  Command="{Binding $parent[TextBox].Undo}"
+                  IsEnabled="{Binding $parent[TextBox].CanUndo}"
+                  InputGesture="Ctrl+Z" />
+        <Separator />
+        <MenuItem Header="切り取り"
+                  Command="{Binding $parent[TextBox].Cut}"
+                  IsEnabled="{Binding $parent[TextBox].CanCut}"
+                  InputGesture="Ctrl+X" />
+        <MenuItem Header="コピー"
+                  Command="{Binding $parent[TextBox].Copy}"
+                  IsEnabled="{Binding $parent[TextBox].CanCopy}"
+                  InputGesture="Ctrl+C" />
+        <MenuItem Header="貼り付け"
+                  Command="{Binding $parent[TextBox].Paste}"
+                  IsEnabled="{Binding $parent[TextBox].CanPaste}"
+                  InputGesture="Ctrl+V" />
+        <Separator />
+        <MenuItem Header="すべて選択"
+                  Command="{Binding $parent[TextBox].SelectAll}"
+                  InputGesture="Ctrl+A" />
+    </MenuFlyout>
 
     <!-- タブを閉じるボタン。ふだんは控えめに、ホバーで背景を出す。 -->
     <ControlTheme x:Key="TabCloseButton" TargetType="Button">

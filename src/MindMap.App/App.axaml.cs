@@ -38,6 +38,10 @@ public partial class App : Application
             if (OperatingSystem.IsWindows())
             {
                 LinkIcons.Current = new WindowsLinkIconProvider();
+
+                // ファイルを落としてノードを作るとき、画像・映像の大きさや撮影時の設定を本文に足す。
+                // 読み方が Windows のプロパティシステムなので、他の OS ではその行が増えないだけ。
+                FileNodeContent.DescribeMedia = MediaProperties.Describe;
             }
 
             // 提供物の置き場。種類ごとに 1 つずつ用意して、plugins のパッケージから配ってもらう。

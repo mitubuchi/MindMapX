@@ -85,6 +85,31 @@ public static class Icons
     /// </summary>
     public static readonly Geometry File = Parse("M6,3 H14 L18,7 V21 H6 Z M14,3 V7 H18 M9,12 H15 M9,16 H15");
 
+    /// <summary>子ノードを縦に整列：左の親から、右へ縦に並ぶ線</summary>
+    public static readonly Geometry ArrangeVertical = Parse("M3,10 H7 V14 H3 Z M11,5 H21 M11,12 H21 M11,19 H21");
+
+    /// <summary>子ノードを横に整列：上の親から、下へ横に並ぶ線</summary>
+    public static readonly Geometry ArrangeHorizontal = Parse("M10,3 H14 V7 H10 Z M5,11 V21 M12,11 V21 M19,11 V21");
+
+    /// <summary>設定：歯車</summary>
+    public static readonly Geometry Settings = Parse(
+        "M18.94,9.74 L22.24,10.19 A10.4,10.4 0 0 1 22.24,13.81 L18.94,14.26 A7.3,7.3 0 0 1 18.5,15.31 " +
+        "L20.52,17.97 A10.4,10.4 0 0 1 17.97,20.52 L15.31,18.5 A7.3,7.3 0 0 1 14.26,18.94 " +
+        "L13.81,22.24 A10.4,10.4 0 0 1 10.19,22.24 L9.74,18.94 A7.3,7.3 0 0 1 8.69,18.5 " +
+        "L6.03,20.52 A10.4,10.4 0 0 1 3.48,17.97 L5.5,15.31 A7.3,7.3 0 0 1 5.06,14.26 " +
+        "L1.76,13.81 A10.4,10.4 0 0 1 1.76,10.19 L5.06,9.74 A7.3,7.3 0 0 1 5.5,8.69 " +
+        "L3.48,6.03 A10.4,10.4 0 0 1 6.03,3.48 L8.69,5.5 A7.3,7.3 0 0 1 9.74,5.06 " +
+        "L10.19,1.76 A10.4,10.4 0 0 1 13.81,1.76 L14.26,5.06 A7.3,7.3 0 0 1 15.31,5.5 " +
+        "L17.97,3.48 A10.4,10.4 0 0 1 20.52,6.03 L18.5,8.69 A7.3,7.3 0 0 1 18.94,9.74 Z " +
+        "M8.6,12.0 A3.4,3.4 0 0 1 15.4,12.0 A3.4,3.4 0 0 1 8.6,12.0 Z");
+
+    /// <summary>子ノードを畳む：丸に横棒</summary>
+    public static readonly Geometry CollapseChildren = Parse("M4,12 A8,8 0 1 0 20,12 A8,8 0 1 0 4,12 M8.5,12 H15.5");
+
+    /// <summary>畳んだ子ノードを開く：丸に十字</summary>
+    public static readonly Geometry ExpandChildren =
+        Parse("M4,12 A8,8 0 1 0 20,12 A8,8 0 1 0 4,12 M8.5,12 H15.5 M12,8.5 V15.5");
+
     /// <summary>ビューア：右側に欄を持つ窓</summary>
     public static readonly Geometry Viewer = Parse("M3,5 H21 V19 H3 Z M14,5 V19 M16,9 H19 M16,12 H19 M16,15 H18");
 
