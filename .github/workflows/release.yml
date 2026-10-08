@@ -38,6 +38,9 @@ jobs:
             rid: osx-arm64
           - os: ubuntu-latest
             rid: linux-x64
+          # Raspberry Pi 4 / 5 など（64 ビット版の OS）。ネイティブ部品は NuGet にあるので実機は要らない
+          - os: ubuntu-latest
+            rid: linux-arm64
 
     env:
       TAG: ${{ inputs.tag }}

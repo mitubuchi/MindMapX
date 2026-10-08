@@ -82,6 +82,7 @@ Markdown / SVG / 画像を表示するパッケージは、非公開のリポジ
 | Windows | `MindMap-<版>-win-x64.zip` | 展開して `MindMap\MindMap.exe` |
 | macOS（Apple Silicon） | `MindMap-<版>-osx-arm64.zip` | 展開してできる `MindMap.app` を開く |
 | Linux（x64） | `MindMap-<版>-linux-x64.tar.gz` | `tar -xzf` で展開して `MindMap/MindMap` |
+| Linux（ARM64。Raspberry Pi 4 / 5 の 64 ビット版 OS など） | `MindMap-<版>-linux-arm64.tar.gz` | 同上（デスクトップのある OS が要る） |
 
 **macOS の版は Apple の開発者証明書で署名していません。** 初めて開くときに
 「開発元を確認できない」と止められたら、`MindMap.app` を右クリックして「開く」を選んでください。
