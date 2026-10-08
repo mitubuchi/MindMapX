@@ -94,6 +94,86 @@ xattr -dr com.apple.quarantine MindMap.app
 
 配布物は GitHub Actions の `release` ワークフローで作ります（手順はワークフローの先頭に書いてあります）。
 
+## 動作確認のしかた
+
+配布物を入れたら、OS ごとの手順で起動し、最後の「確かめること」を順に試してください。
+うまくいかないときは、出たメッセージ（ターミナルに出たものはそのまま）と手順の番号を添えて知らせてください。
+
+### Windows
+
+1. `MindMap-<版>-win-x64.zip` を展開する
+2. `MindMap\MindMap.exe` を起動する（SmartScreen に止められたら「詳細情報」→「実行」）
+
+### macOS（Apple Silicon）
+
+1. `MindMap-<版>-osx-arm64.zip` を展開する（ダブルクリックで `MindMap.app` ができる）
+2. `MindMap.app` を右クリックして「開く」を選ぶ（署名が Apple の開発者証明書ではないため、初回だけ必要）
+3. 「壊れているため開けません」と出たら、ターミナルで次を実行してから開き直す
+
+```sh
+xattr -dr com.apple.quarantine MindMap.app
+```
+
+設定ファイル（`config.txt`）とパッケージ（`plugins`）は、`MindMap.app/Contents/MacOS/` の中にあります。
+
+### Linux（x64）
+
+```sh
+tar -xzf MindMap-<版>-linux-x64.tar.gz
+./MindMap/MindMap
+```
+
+デスクトップ（X11 か Wayland）のある環境で起動してください。画面の無いサーバーでは動きません。
+
+### Raspberry Pi（Linux ARM64）
+
+Raspberry Pi 4 / 5 など、**64 ビット版の Raspberry Pi OS（デスクトップ付き）**が対象です。
+まず 64 ビット版かを確かめます。`aarch64` と出れば対象で、`armv7l` なら 32 ビット版なので動きません。
+
+```sh
+uname -m
+```
+
+ダウンロードして展開し、起動します。
+
+```sh
+wget https://github.com/mitubuchi/MindMapX/releases/download/v<版>/MindMap-<版>-linux-arm64.tar.gz
+tar -xzf MindMap-<版>-linux-arm64.tar.gz
+./MindMap/MindMap
+```
+
+SSH でつないで、Raspberry Pi につないだ画面に出すときは `DISPLAY=:0 ./MindMap/MindMap` とします。
+日本語が □ で表示されるときは、日本語のフォントを入れます。
+
+```sh
+sudo apt install -y fonts-noto-cjk
+```
+
+### 確かめること（どの OS でも共通）
+
+確認用のファイルは、MdViewer のサンプル（`git clone https://github.com/mitubuchi/MdViewer` の
+`MdViewerApp/Samples/`）が便利です。
+
+1. ノードを選んで **Tab** で子ノード、**Enter** で兄弟ノードができる。選んだノードの枠が青くなる
+2. ダブルクリックで編集でき、編集中の右クリックで切り取り・貼り付けができる
+3. **F7** でビューア欄が開く
+4. `report.md` をファイルマネージャーからキャンバスへドラッグすると、リンク付きのノードができる
+5. そのノードを選び、ビューア欄の上の「report.md」を押すと Markdown が表示される（中の SVG のグラフも出る）
+6. `chart.svg` や写真（jpg / png）も同じように表示される。写真のノードは ∨ で広げると絵が出る
+7. 保存（Ctrl+S）して閉じ、開き直すと元どおりになる
+
+### うまくいかないとき
+
+| 出るもの | 対処 |
+|---|---|
+| `Permission denied`（Linux） | `chmod +x MindMap/MindMap` をしてから起動し直す |
+| `Couldn't find a valid ICU package`（Linux） | `sudo apt install -y libicu72`（番号は OS の版で違うことがある） |
+| 文字が □ になる（Linux） | 日本語のフォントを入れる（上の `fonts-noto-cjk`） |
+| 「パッケージを読み込めませんでした」 | 表示された内容を知らせる。Markdown などの表示だけが使えず、ほかは動く |
+| ドラッグしても何も起きない | ノードの右クリック →「ファイルを選んでリンク...」で代わりに試し、ドラッグが効かなかったことを知らせる |
+
+Windows 以外の OS での動作は、開発元ではまだ実機で確かめていません（ビルドと配布物の中身までは確認済み）。
+
 ## 動作環境
 
 - [.NET 9 SDK](https://dotnet.microsoft.com/download)
