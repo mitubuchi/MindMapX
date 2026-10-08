@@ -72,6 +72,27 @@ OS ごとに違う部分（クリップボード、リンクの開き方、ア�
 Markdown / SVG / 画像を表示するパッケージは、非公開のリポジトリ（MindMapPackages）の
 `MdViewerPackage.Avalonia` にあります（`deploy.ps1 -X` で配置）。
 
+## ダウンロード
+
+[Releases](https://github.com/mitubuchi/MindMapX/releases) に、OS ごとの配布物を置いています。
+どれも .NET を入れずに動きます。Markdown / SVG / 画像を表示するパッケージ（MdViewer）も同梱しています。
+
+| OS | ファイル | 使い方 |
+|---|---|---|
+| Windows | `MindMap-<版>-win-x64.zip` | 展開して `MindMap\MindMap.exe` |
+| macOS（Apple Silicon） | `MindMap-<版>-osx-arm64.zip` | 展開してできる `MindMap.app` を開く |
+| Linux（x64） | `MindMap-<版>-linux-x64.tar.gz` | `tar -xzf` で展開して `MindMap/MindMap` |
+
+**macOS の版は Apple の開発者証明書で署名していません。** 初めて開くときに
+「開発元を確認できない」と止められたら、`MindMap.app` を右クリックして「開く」を選んでください。
+「壊れているため開けません」と出る場合は、ターミナルで次を実行してから開きます。
+
+```sh
+xattr -dr com.apple.quarantine MindMap.app
+```
+
+配布物は GitHub Actions の `release` ワークフローで作ります（手順はワークフローの先頭に書いてあります）。
+
 ## 動作環境
 
 - [.NET 9 SDK](https://dotnet.microsoft.com/download)

@@ -11,7 +11,10 @@
     <AssemblyName>MindMap</AssemblyName>
     <Product>MindMap</Product>
     <Company>MindMap</Company>
-    <Version>0.1.0</Version>
+    <!-- 版は WPF 版の MindMap と揃える（同じ機能の版を同じ番号で呼べるように）。 -->
+    <Version>1.7.0</Version>
+    <FileVersion>1.7.0.0</FileVersion>
+    <AssemblyVersion>1.7.0.0</AssemblyVersion>
     <Copyright>Copyright © 2026</Copyright>
 
     <!-- Windows 以外では単に無視される。 -->

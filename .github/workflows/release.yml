@@ -1,0 +1,127 @@
+name: release
+
+# 配布物を作って、GitHub の Releases に置く。
+#
+# 手順（この順番で行う）:
+#   1. 下書きのリリースを作り、MdViewer のパッケージ（MindMap-plugins-<版>.zip）を添付しておく。
+#      パッケージの元（MindMapPackages）は非公開なので、ここでは作れない。手元で作って渡す。
+#   2. このワークフローを、そのタグ（例 v1.7.0）を指定して手で動かす。
+#   3. 出来た配布物を確かめてから、下書きを公開する（タグはそのときに付く）。
+#
+# 配る形:
+#   Windows : ZIP（展開して MindMap.exe）
+#   macOS   : MindMap.app を ZIP にしたもの（Apple Silicon のみ。ditto で固めて属性と実行権限を保つ）
+#   Linux   : tar.gz（ZIP だと実行権限が落ちるため）
+# どれも .NET のインストールが要らない自己完結の形。
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "下書きのリリースのタグ（例 v1.7.0）"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: ${{ matrix.rid }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: macos-latest
+            rid: osx-arm64
+          - os: ubuntu-latest
+            rid: linux-x64
+
+    env:
+      TAG: ${{ inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Publish
+        run: >
+          dotnet publish src/MindMap.Desktop/MindMap.Desktop.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true
+          -o out/MindMap
+
+      # MdViewer のパッケージ（Markdown / SVG / 画像の表示）は下書きのリリースから取る。
+      # 中身は OS に依らない（描画系は本体のものを使う）ので、1 つを全部の OS に入れる。
+      - name: Add plugins
+        run: |
+          gh release download "$TAG" -R "${{ github.repository }}" -p "MindMap-plugins-*.zip" -D plugins-zip
+          mkdir -p out/MindMap/plugins
+          unzip -q plugins-zip/*.zip -d out/MindMap/plugins
+          ls -R out/MindMap/plugins | head -40
+
+      - name: Package (Windows)
+        if: startsWith(matrix.rid, 'win')
+        shell: pwsh
+        run: |
+          $version = "$env:TAG".TrimStart("v")
+          Compress-Archive -Path out/MindMap -DestinationPath "MindMap-$version-${{ matrix.rid }}.zip"
+          gh release upload "$env:TAG" "MindMap-$version-${{ matrix.rid }}.zip" -R "${{ github.repository }}" --clobber
+
+      # .app の中身は Contents/MacOS に置く。設定ファイル（config.txt）と plugins も実行ファイルの隣になる。
+      # 署名は ad-hoc（Apple の開発者証明書は持っていない）。Apple Silicon では署名の無い
+      # 実行ファイルは起動できないので、最低限これだけは付ける。
+      - name: Package (macOS)
+        if: startsWith(matrix.rid, 'osx')
+        run: |
+          version="${TAG#v}"
+          app=MindMap.app
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+          cp -R out/MindMap/. "$app/Contents/MacOS/"
+          chmod +x "$app/Contents/MacOS/MindMap"
+
+          # アイコンは Windows 用の .ico から作る。作れなくても起動には困らないので止めない。
+          icon_entry=""
+          if sips -s format icns src/MindMap.App/Assets/app.ico --out "$app/Contents/Resources/MindMap.icns" >/dev/null 2>&1; then
+            icon_entry="<key>CFBundleIconFile</key><string>MindMap</string>"
+          fi
+
+          cat > "$app/Contents/Info.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>MindMap</string>
+            <key>CFBundleDisplayName</key><string>MindMap</string>
+            <key>CFBundleIdentifier</key><string>com.mitubuchi.mindmapx</string>
+            <key>CFBundleExecutable</key><string>MindMap</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>CFBundleShortVersionString</key><string>${version}</string>
+            <key>CFBundleVersion</key><string>${version}</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+            ${icon_entry}
+          </dict>
+          </plist>
+          EOF
+
+          codesign --force --deep --sign - "$app"
+          ditto -c -k --keepParent "$app" "MindMap-${version}-${{ matrix.rid }}.zip"
+          gh release upload "$TAG" "MindMap-${version}-${{ matrix.rid }}.zip" -R "${{ github.repository }}" --clobber
+
+      - name: Package (Linux)
+        if: startsWith(matrix.rid, 'linux')
+        run: |
+          version="${TAG#v}"
+          chmod +x out/MindMap/MindMap
+          tar -czf "MindMap-${version}-${{ matrix.rid }}.tar.gz" -C out MindMap
+          gh release upload "$TAG" "MindMap-${version}-${{ matrix.rid }}.tar.gz" -R "${{ github.repository }}" --clobber
