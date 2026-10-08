@@ -20,6 +20,15 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia.Desktop" Version="11.3.9" />
+    <!--
+      描画系の版はホストが決める。plugins のパッケージは Avalonia と SkiaSharp を
+      ホストのものに寄せて動く（PackageLoadContext）ので、ここが古いとパッケージ側で
+      足りないメソッドが出る。MdViewer の SVG 描画（Svg.Skia）が SkiaSharp 3.116.1 を要るので、
+      Avalonia の既定（2.88.9）から上げておく。Avalonia 11.3 は SkiaSharp 3 で動く。
+      Linux のネイティブ部品は本体から辿られないので、版を揃えて明示する。
+    -->
+    <PackageReference Include="SkiaSharp" Version="3.116.1" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux" Version="3.116.1" />
   </ItemGroup>
 
   <ItemGroup>

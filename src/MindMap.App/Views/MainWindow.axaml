@@ -3,6 +3,7 @@
         xmlns:conv="using:MindMap.Converters"
         xmlns:res="using:MindMap.Resources"
         xmlns:vm="using:MindMap.ViewModels"
+        xmlns:views="using:MindMap.Views"
         x:Class="MindMap.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="{Binding Title}"
@@ -30,6 +31,7 @@
         <KeyBinding Gesture="Ctrl+OemPlus" Command="{Binding ActiveDocument.ZoomInCommand}" />
         <KeyBinding Gesture="Ctrl+OemMinus" Command="{Binding ActiveDocument.ZoomOutCommand}" />
         <KeyBinding Gesture="Ctrl+D0" Command="{Binding ActiveDocument.ResetZoomCommand}" />
+        <KeyBinding Gesture="F7" Command="{Binding Viewer.ToggleCommand}" />
     </Window.KeyBindings>
 
     <DockPanel>
@@ -123,6 +125,16 @@
                         Command="{Binding ActiveDocument.ZoomInCommand}"
                         Tag="{x:Static res:Icons.ZoomIn}"
                         ToolTip.Tip="拡大 (Ctrl++)" />
+
+                <Border Width="1" Margin="5,4" Background="{StaticResource DividerBrush}" />
+
+                <!--
+                    ビューアの開閉。入っているかどうかを見せたいのでボタンではなく入切にする。
+                -->
+                <ToggleButton Theme="{StaticResource ToolBarToggleButton}"
+                              IsChecked="{Binding Viewer.IsVisible, Mode=TwoWay}"
+                              Tag="{x:Static res:Icons.Viewer}"
+                              ToolTip.Tip="ビューア (F7)" />
             </StackPanel>
         </Border>
 
@@ -149,6 +161,25 @@
             </Grid>
         </Border>
 
+        <!--
+            ビューア。選択中のノードの本文か、リンク先のファイルを右側に出す。
+            間の細い帯はドラッグで幅を変えるためのもので、たたんでいる間は帯ごと消す。
+            DockPanel は先に置いたものから外側に付くので、ビューア・帯・タブの順に並べる。
+        -->
+        <views:ViewerPane DockPanel.Dock="Right"
+                          DataContext="{Binding Viewer}"
+                          Width="{Binding Width}"
+                          IsVisible="{Binding IsVisible}" />
+
+        <Border DockPanel.Dock="Right"
+                Width="6"
+                Background="Transparent"
+                Cursor="SizeWestEast"
+                IsVisible="{Binding Viewer.IsVisible}"
+                PointerPressed="ViewerSplitter_PointerPressed"
+                PointerMoved="ViewerSplitter_PointerMoved"
+                PointerReleased="ViewerSplitter_PointerReleased" />
+
         <TabControl ItemsSource="{Binding Documents}"
                     SelectedItem="{Binding ActiveDocument}"
                     Padding="0">
@@ -158,9 +189,12 @@
                 <DataTemplate DataType="vm:DocumentViewModel">
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <TextBlock Text="{Binding DisplayName}" VerticalAlignment="Center" />
+                        <!-- ウィンドウの ViewModel へは型変換を書かずに辿る。
+                             ((vm:MainWindowViewModel)DataContext) と書くと、実行時に型を解決できず
+                             起動した直後に落ちていた（このバインドはコンパイルされないため）。 -->
                         <Button Theme="{StaticResource TabCloseButton}"
                                 ToolTip.Tip="このタブを閉じる (Ctrl+W)"
-                                Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).CloseDocumentCommand}"
+                                Command="{Binding $parent[Window].DataContext.CloseDocumentCommand}"
                                 CommandParameter="{Binding}" />
                     </StackPanel>
                 </DataTemplate>

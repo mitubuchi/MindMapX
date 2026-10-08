@@ -1,0 +1,118 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:MindMap.Converters"
+             xmlns:vm="using:MindMap.ViewModels"
+             x:Class="MindMap.Views.ViewerPane"
+             x:DataType="vm:ViewerViewModel"
+             FontSize="13">
+    <!--
+        DataContext は ViewerViewModel。
+        本文はここでそのまま書き換えられる。リンク先の描画は種類ごとのビューアが作るので、
+        ここでは出来上がった画面を枠に載せるだけで、中身が何かは知らない。
+    -->
+    <Border Background="White"
+            BorderBrush="#DDE3EA"
+            BorderThickness="1,0,0,0">
+        <DockPanel>
+            <!-- 見出し行：本文とリンクの切り替え、右端に閉じるボタン。 -->
+            <Border DockPanel.Dock="Top"
+                    Background="#F4F6F8"
+                    BorderBrush="#DDE3EA"
+                    BorderThickness="0,0,0,1"
+                    Padding="8,6">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- 選んだ側が出せないノードでも勝手には切り替えない。
+                             出せない理由を下に文言で出すだけにして、見ている場所を保つ。 -->
+                        <RadioButton Theme="{StaticResource ViewerTabButton}"
+                                     GroupName="ViewerSource"
+                                     Content="本文"
+                                     IsChecked="{Binding SourceKind,
+                                                         Converter={x:Static conv:AppConverters.EnumEquals},
+                                                         ConverterParameter=Body,
+                                                         Mode=TwoWay}" />
+                        <RadioButton Theme="{StaticResource ViewerTabButton}"
+                                     GroupName="ViewerSource"
+                                     Content="{Binding TabLabel}"
+                                     IsChecked="{Binding SourceKind,
+                                                         Converter={x:Static conv:AppConverters.EnumEquals},
+                                                         ConverterParameter=Link,
+                                                         Mode=TwoWay}" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            VerticalAlignment="Center"
+                            Theme="{StaticResource TabCloseButton}"
+                            ToolTip.Tip="ビューアを閉じる (F7)"
+                            Command="{Binding ToggleCommand}" />
+                </Grid>
+            </Border>
+
+            <!-- いま見ているもの。本文ならノードの見出し、リンクならその場所。
+                 リンクのときは右端に「リンク先を開く」を添える。 -->
+            <Grid DockPanel.Dock="Top"
+                  Margin="10,6,8,0"
+                  ColumnDefinitions="*,Auto"
+                  IsVisible="{Binding HasCaption}">
+                <TextBlock VerticalAlignment="Center"
+                           FontSize="11"
+                           Foreground="{StaticResource BodyBrush}"
+                           TextTrimming="CharacterEllipsis"
+                           Text="{Binding Caption}"
+                           ToolTip.Tip="{Binding Caption}" />
+                <!-- 関連付けられたアプリに渡す。絵柄はノードの脇のリンクアイコンと同じもの。
+                     ノードのアイコンをクリックしたときと同じコマンドを呼ぶ。 -->
+                <Button Grid.Column="1"
+                        Margin="6,0,0,0"
+                        VerticalAlignment="Center"
+                        Theme="{StaticResource NodeLinkButton}"
+                        ToolTip.Tip="リンク先を開く"
+                        IsVisible="{Binding ShowsOpenLink}"
+                        Click="OpenLink_Click" />
+            </Grid>
+
+            <Panel Margin="10">
+                <!-- 本文。ここで書き換えた内容は、そのままノードの本文になる。
+                     入った時点から抜けるまでが 1 回ぶんの Undo になる。 -->
+                <TextBox Name="BodyEditor"
+                         IsVisible="{Binding ShowsEditor}"
+                         Text="{Binding Body}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         BorderThickness="0"
+                         Background="Transparent"
+                         Padding="0"
+                         FontFamily="Consolas, Yu Gothic UI, Meiryo, Menlo, Hiragino Sans, monospace"
+                         FontSize="12"
+                         VerticalContentAlignment="Top"
+                         Watermark="本文をここに書けます"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         GotFocus="BodyEditor_GotFocus"
+                         LostFocus="BodyEditor_LostFocus">
+                    <TextBox.Styles>
+                        <!-- Fluent はフォーカス時に入力欄の背景と枠を描く。ここは面全体が入力欄なので出さない。 -->
+                        <Style Selector="TextBox /template/ Border#PART_BorderElement">
+                            <Setter Property="Background" Value="Transparent" />
+                            <Setter Property="BorderThickness" Value="0" />
+                        </Style>
+                    </TextBox.Styles>
+                </TextBox>
+
+                <!-- リンク先。種類ごとのビューアが作った画面をそのまま載せる。 -->
+                <ContentControl Content="{Binding LinkView}"
+                                Focusable="False"
+                                IsVisible="{Binding ShowsLink}" />
+
+                <!-- ビューアを呼ぶ前に出せないと分かったとき（リンクが無い、Web など）。 -->
+                <TextBlock Text="{Binding Message}"
+                           TextWrapping="Wrap"
+                           TextAlignment="Center"
+                           Foreground="{StaticResource MutedBrush}"
+                           FontSize="12"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           IsVisible="{Binding HasMessage}" />
+            </Panel>
+        </DockPanel>
+    </Border>
+</UserControl>

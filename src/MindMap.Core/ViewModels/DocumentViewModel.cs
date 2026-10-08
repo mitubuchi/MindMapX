@@ -4,8 +4,10 @@ using System.IO;
 using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Text.Json;
 using MindMap.Models;
 using MindMap.Services;
+using MindMap.Services.Layout;
 using MindMap.Undo;
 using ReactiveUI;
 
@@ -23,6 +25,12 @@ public sealed class DocumentViewModel : ReactiveObject
     /// <summary>別ファイルへ切り出した部分木を、新しいキャンバスの左上から離しておく余白。</summary>
     private const double ExtractedMargin = 120;
 
+    /// <summary>
+    /// 保存された絶対位置と、相対位置から計算し直した位置が「同じ」とみなせる差。
+    /// 掛け算と足し算を通るので完全一致にはならない。1 ピクセルよりずっと細かく取る。
+    /// </summary>
+    private const double PositionTolerance = 0.001;
+
     public const double MinZoom = 0.3;
     public const double MaxZoom = 3.0;
     private const double ZoomStep = 1.2;
@@ -37,6 +45,12 @@ public sealed class DocumentViewModel : ReactiveObject
     private readonly Interaction<string, SaveChangesResult> _confirmSaveChanges;
     private readonly Interaction<string, Unit> _showError;
 
+    /// <summary>並べる前に、ノードの大きさを測り直してもらう相手。</summary>
+    private readonly Interaction<Unit, Unit> _measureNodes;
+
+    /// <summary>リンク先から小さな絵を作る係。ウィンドウで 1 つを共有する。</summary>
+    private readonly INodeThumbnailSource _thumbnails;
+
     /// <summary>クリップボードの読み書き。OS ごとに違うので UI 側から受け取る。</summary>
     private readonly INodeClipboard _clipboard;
 
@@ -48,6 +62,9 @@ public sealed class DocumentViewModel : ReactiveObject
     /// <summary>編集中のノードと、編集を始めた時点の内容。Undo と Escape の取り消しに使う。</summary>
     private (NodeViewModel Node, string Title, string Body, string Link)? _activeEdit;
 
+    /// <summary>ビューアの本文欄で編集している 1 回ぶん。キャンバス上の編集とは別に持つ。</summary>
+    private (NodeViewModel Node, string Title, string Body, string Link)? _externalEdit;
+
     private NodeViewModel? _selectedNode;
     private string? _currentFilePath;
     private bool _isDirty;
@@ -55,12 +72,17 @@ public sealed class DocumentViewModel : ReactiveObject
     private bool _canRedo;
     private double _zoom = 1.0;
 
+    /// <summary>読み込んだファイルにあった、ファイル全体に付く知らない欄。保存時に書き戻す。</summary>
+    private Dictionary<string, JsonElement>? _documentExtra;
+
     public DocumentViewModel(
         string untitledName,
         Interaction<string?, string?> showSaveFileDialog,
         Interaction<Unit, string?> showLinkFileDialog,
         Interaction<string, SaveChangesResult> confirmSaveChanges,
         Interaction<string, Unit> showError,
+        Interaction<Unit, Unit> measureNodes,
+        INodeThumbnailSource thumbnails,
         INodeClipboard clipboard)
     {
         _untitledName = untitledName;
@@ -68,6 +90,8 @@ public sealed class DocumentViewModel : ReactiveObject
         _showLinkFileDialog = showLinkFileDialog;
         _confirmSaveChanges = confirmSaveChanges;
         _showError = showError;
+        _measureNodes = measureNodes;
+        _thumbnails = thumbnails;
         _clipboard = clipboard;
 
         var hasSelection = this.WhenAnyValue(x => x.SelectedNode).Select(node => node is not null);
@@ -104,6 +128,13 @@ public sealed class DocumentViewModel : ReactiveObject
         var canDelete = selectionChanged
             .CombineLatest(notEditing, (_, ready) => ready && SelectedNodes.Any(n => n.Parent is not null));
 
+        // 並べる相手は「選んだノードの直接の子」なので、子がいなければ押せない。
+        var canArrange = this.WhenAnyValue(
+            x => x.SelectedNode,
+            x => x.SelectedNode!.HasChildren,
+            x => x.SelectedNode!.IsEditing,
+            (node, hasChildren, editing) => node is not null && hasChildren && !editing);
+
         SaveCommand = ReactiveCommand.CreateFromTask(SaveAsync);
         SaveAsCommand = ReactiveCommand.CreateFromTask(SaveAsAsync);
         AddChildCommand = ReactiveCommand.Create(AddChild, canEditStructure);
@@ -116,6 +147,11 @@ public sealed class DocumentViewModel : ReactiveObject
         PasteCommand = ReactiveCommand.CreateFromTask(PasteAsync, notEditing);
         SelectAllCommand = ReactiveCommand.Create(SelectAll, notEditing);
         ToggleCollapseCommand = ReactiveCommand.Create<NodeViewModel>(ToggleCollapse);
+        ToggleChildrenCommand = ReactiveCommand.Create<NodeViewModel>(ToggleChildren);
+        ArrangeChildrenVerticalCommand = ReactiveCommand.CreateFromTask(
+            () => ArrangeChildrenAsync(LayoutOrientation.Vertical), canArrange);
+        ArrangeChildrenHorizontalCommand = ReactiveCommand.CreateFromTask(
+            () => ArrangeChildrenAsync(LayoutOrientation.Horizontal), canArrange);
         UndoCommand = ReactiveCommand.Create(_history.Undo, this.WhenAnyValue(x => x.CanUndo));
         RedoCommand = ReactiveCommand.Create(_history.Redo, this.WhenAnyValue(x => x.CanRedo));
         ZoomInCommand = ReactiveCommand.Create(() => Zoom *= ZoomStep);
@@ -136,6 +172,9 @@ public sealed class DocumentViewModel : ReactiveObject
                 PasteCommand.ThrownExceptions,
                 SelectAllCommand.ThrownExceptions,
                 ToggleCollapseCommand.ThrownExceptions,
+                ToggleChildrenCommand.ThrownExceptions,
+                ArrangeChildrenVerticalCommand.ThrownExceptions,
+                ArrangeChildrenHorizontalCommand.ThrownExceptions,
                 UndoCommand.ThrownExceptions,
                 RedoCommand.ThrownExceptions)
             .SelectMany(ex => _showError.Handle(ex.Message))
@@ -197,7 +236,23 @@ public sealed class DocumentViewModel : ReactiveObject
     public string? CurrentFilePath
     {
         get => _currentFilePath;
-        private set => this.RaiseAndSetIfChanged(ref _currentFilePath, value);
+        private set
+        {
+            if (_currentFilePath == value)
+            {
+                return;
+            }
+
+            this.RaiseAndSetIfChanged(ref _currentFilePath, value);
+
+            // 相対リンクの基準が変わったので、絵を作り直す。
+            // 読み込みの直後（保存先が決まるのはノードを並べたあと）と、
+            // 名前を付けて保存で別の場所へ移したときに効く。
+            foreach (var node in Nodes)
+            {
+                RefreshThumbnail(node);
+            }
+        }
     }
 
     public bool IsDirty
@@ -259,6 +314,14 @@ public sealed class DocumentViewModel : ReactiveObject
 
     /// <summary>ノードの表示を大小切り替える（引数のノードを対象にする）。</summary>
     public ReactiveCommand<NodeViewModel, Unit> ToggleCollapseCommand { get; }
+
+    public ReactiveCommand<NodeViewModel, Unit> ToggleChildrenCommand { get; }
+
+    /// <summary>選んだノードの直接の子を、縦一列に並べる。</summary>
+    public ReactiveCommand<Unit, Unit> ArrangeChildrenVerticalCommand { get; }
+
+    /// <summary>選んだノードの直接の子を、横一列に並べる。</summary>
+    public ReactiveCommand<Unit, Unit> ArrangeChildrenHorizontalCommand { get; }
 
     public ReactiveCommand<Unit, Unit> UndoCommand { get; }
 
@@ -374,7 +437,9 @@ public sealed class DocumentViewModel : ReactiveObject
         var next = new List<NodeViewModel>();
         foreach (var node in nodes)
         {
-            if (!next.Contains(node))
+            // 畳まれて見えていないノードは選ばない。選べてしまうと、画面に出ていないものを
+            // 消したり動かしたりできてしまう（すべて選択がいちばん通りやすい）。
+            if (node.IsVisible && !next.Contains(node))
             {
                 next.Add(node);
             }
@@ -431,9 +496,7 @@ public sealed class DocumentViewModel : ReactiveObject
     /// <param name="y">落とした位置。</param>
     public void AddFileNodes(IReadOnlyList<string> paths, double x, double y)
     {
-        // 選択が無ければルートにぶら下げる。複数選択中は代表ノード（最後に選んだもの）を親にする。
-        var parent = SelectedNode ?? Nodes.FirstOrDefault(n => n.Parent is null) ?? Nodes.FirstOrDefault();
-        if (parent is null)
+        if (DropParent() is not { } parent)
         {
             return;
         }
@@ -460,6 +523,61 @@ public sealed class DocumentViewModel : ReactiveObject
             top += NodeViewModel.DefaultHeight + VerticalGap;
         }
 
+        AddDroppedNodes(created, parent);
+    }
+
+    /// <summary>
+    /// ブラウザーから落とされた URL を、選択中のノード（無ければルート）の子として追加する。
+    /// タイトルはページの題名、無ければ URL そのもの。リンクは URL を指す。
+    ///
+    /// ノードの上に落としたときと違い、こちらは<b>選択中のノードには触らない</b>。
+    /// 調べものの途中で参照を足していくとき、いま書いているノードの題名や本文を
+    /// 上書きされたくないため。複数まとめて落とされても 1 回の Undo で取り消せる。
+    /// </summary>
+    /// <param name="links">落とされた URL と、渡されていればページの題名。</param>
+    /// <param name="x">落とした位置。ここを起点に、縦に積んでいく。</param>
+    /// <param name="y">落とした位置。</param>
+    public void AddLinkNodes(IReadOnlyList<DroppedUrl> links, double x, double y)
+    {
+        if (DropParent() is not { } parent)
+        {
+            return;
+        }
+
+        var created = new List<NodeViewModel>();
+        var top = y;
+
+        foreach (var link in links)
+        {
+            var title = string.IsNullOrWhiteSpace(link.Title) ? link.Url : link.Title.Trim();
+
+            // 題名を 1 行目に出したときは、URL が見えなくなるので本文に残す。
+            var body = title == link.Url ? string.Empty : link.Url;
+
+            created.Add(new NodeViewModel(Guid.NewGuid(), title, body, x, top, link.Url)
+            {
+                Parent = parent,
+            });
+
+            top += NodeViewModel.DefaultHeight + VerticalGap;
+        }
+
+        AddDroppedNodes(created, parent);
+    }
+
+    /// <summary>
+    /// 落とされたものをぶら下げる先。選択が無ければルートにする。
+    /// 複数選択中は代表ノード（最後に選んだもの）を親にする。
+    /// </summary>
+    private NodeViewModel? DropParent() =>
+        SelectedNode ?? Nodes.FirstOrDefault(n => n.Parent is null) ?? Nodes.FirstOrDefault();
+
+    /// <summary>
+    /// 落として作ったノードをマップに入れ、1 回の Undo でまとめて取り消せるようにする。
+    /// ファイルでも URL でも同じ扱いにしたいので、ここに寄せてある。
+    /// </summary>
+    private void AddDroppedNodes(List<NodeViewModel> created, NodeViewModel parent)
+    {
         if (created.Count == 0)
         {
             return;
@@ -557,6 +675,122 @@ public sealed class DocumentViewModel : ReactiveObject
     }
 
     /// <summary>
+    /// 選んだノードの<b>直接の子だけ</b>を 1 列に並べる。孫より下は動かさない
+    /// （動かす必要もない。子が動けば、その先は相対位置のまま付いてくる）。
+    ///
+    /// 並べるときに、子の本文を隠し、孫を畳む。並べた形を見るのに要らないものを
+    /// たたんで、1 列の見通しを優先するため。並べ終わったら子をすべて選択するので、
+    /// そのまま次の操作（まとめて動かす、削除する）に移れる。
+    ///
+    /// 位置・本文の畳み方・孫の畳み方・選択を、まとめて 1 回の Undo で戻せる。
+    /// </summary>
+    private async Task ArrangeChildrenAsync(LayoutOrientation orientation)
+    {
+        if (SelectedNode is not { } parent)
+        {
+            return;
+        }
+
+        // 画面に見えている並び順を崩さない。今の位置で並べ替えてから 1 列にする
+        // （一覧の順で並べると、手で入れ替えた上下関係が実行のたびに元へ戻ってしまう）。
+        var children = ChildrenOf(parent);
+        children.Sort((a, b) => orientation == LayoutOrientation.Vertical
+            ? a.Y.CompareTo(b.Y)
+            : a.X.CompareTo(b.X));
+
+        if (children.Count == 0)
+        {
+            return;
+        }
+
+        var before = children
+            .Select(c => (Node: c, c.X, c.Y, c.IsCollapsed, Hidden: c.AreChildrenHidden))
+            .ToList();
+
+        foreach (var child in children)
+        {
+            child.IsCollapsed = true;
+            child.AreChildrenHidden = true;
+        }
+
+        // 本文を隠したぶん、ノードは縮む。その新しい大きさで間を詰めたいので、
+        // 位置を決める前に View に一度だけ測り直してもらう。
+        await _measureNodes.Handle(Unit.Default);
+
+        var placed = ChildLayout.Arrange(
+            orientation,
+            parent.X,
+            parent.Y,
+            parent.WorldWidth,
+            parent.WorldHeight,
+            children.Select(c => (c.WorldWidth, c.WorldHeight)).ToList(),
+            HorizontalGap,
+            VerticalGap);
+
+        var after = children
+            .Select((child, i) => (Node: child, placed[i].X, placed[i].Y, IsCollapsed: true, Hidden: true))
+            .ToList();
+
+        void Apply(IReadOnlyList<(NodeViewModel Node, double X, double Y, bool IsCollapsed, bool Hidden)> state)
+        {
+            foreach (var (node, x, y, collapsed, hidden) in state)
+            {
+                node.IsCollapsed = collapsed;
+                node.AreChildrenHidden = hidden;
+                node.X = x;
+                node.Y = y;
+            }
+
+            IsDirty = true;
+        }
+
+        // 並べたあとは子がすべて選択された状態にする。代表は先頭（並べた順の 1 つ目）。
+        // そのまま「まとめて動かす」「まとめて消す」に移れる。
+        void SelectArranged()
+        {
+            Apply(after);
+            SetSelection(children, children[0]);
+        }
+
+        SelectArranged();
+
+        _history.Push(new DelegateUndoableAction(
+            undo: () =>
+            {
+                Apply(before);
+
+                // 元に戻したら、押したときに選んでいた親へ選択を返す。
+                SelectedNode = parent;
+            },
+            redo: SelectArranged));
+    }
+
+    /// <summary>
+    /// 子ノードを畳む・開く。畳むと子孫が見えなくなるので、その中に選択が残らないよう外す
+    /// （見えないノードを選んだまま消す、が起きないため）。
+    /// </summary>
+    private void ToggleChildren(NodeViewModel node)
+    {
+        var newValue = !node.AreChildrenHidden;
+
+        void Apply(bool hidden)
+        {
+            node.AreChildrenHidden = hidden;
+
+            // 畳んだ中に選択が残っていることがあるので、選び直す
+            // （見えなくなったぶんは SetSelection が落とす）。
+            SetSelection(SelectedNodes.Append(node).ToList(), node);
+            IsDirty = true;
+        }
+
+        Apply(newValue);
+
+        _history.Push(new DelegateUndoableAction(
+            undo: () => Apply(!newValue),
+            redo: () => Apply(newValue)));
+    }
+
+    /// <summary>
     /// 保存する。保存先が決まっていなければダイアログで尋ねる。
     /// 取り消された場合は <see cref="IsDirty"/> が下りないので、呼び出し側から判別できる。
     /// </summary>
@@ -648,7 +882,7 @@ public sealed class DocumentViewModel : ReactiveObject
 
         try
         {
-            MindMapFileService.Save(path, BuildExtractedDocument(node, children, LinkPath(path, sourcePath)));
+            MindMapFileService.Save(path, BuildExtractedDocument(node, children, CrossLink(path, sourcePath)));
         }
         catch (Exception ex)
         {
@@ -658,7 +892,7 @@ public sealed class DocumentViewModel : ReactiveObject
         }
 
         var oldLink = node.Link;
-        var newLink = LinkPath(sourcePath, path);
+        var newLink = CrossLink(sourcePath, path);
 
         Extract();
 
@@ -727,11 +961,37 @@ public sealed class DocumentViewModel : ReactiveObject
             dto.Y += offsetY;
         }
 
+        // 子の相対位置は動かさない（親との位置関係は変わらないため）。
+        // 動くのはルートだけで、しかも新しいファイルではルート＝親がいないので、
+        // 相対位置は寄せたあとの絶対位置そのものになる。
+        root.Transform = new NodeTransform
+        {
+            Position = Vector3.Of(root.X, root.Y, root.Transform?.PositionZ ?? 0),
+            Rotation = root.Transform?.Rotation,
+            Scale = root.Transform?.Scale,
+        };
+
         return new MindMapDocument
         {
             Version = MindMapDocument.CurrentVersion,
             Nodes = nodes,
         };
+    }
+
+    /// <summary>
+    /// 切り出した 2 つのファイルが互いに張るリンク。
+    ///
+    /// 他のリンクと同じ規則（Root Path の下なら Root からの相対）で書く。ここだけ
+    /// マップファイル基準にすると、1 つのファイルの中に基準の違う相対パスが混ざり、
+    /// 同じ名前のファイルが両方の基準の先にあったときに取り違える。
+    /// Root の外へ切り出したときは Root からは表せないので、相手のファイルからの相対に落とす。
+    /// </summary>
+    private static string CrossLink(string fromFile, string toFile)
+    {
+        var stored = LinkPathResolver.ToStoredLink(Path.GetFullPath(toFile));
+
+        // 置き換わらなかった（＝Root の外、別ドライブ、設定が切）ときは絶対パスのまま返る。
+        return Path.IsPathRooted(stored) ? LinkPath(fromFile, toFile) : stored;
     }
 
     /// <summary>
@@ -762,18 +1022,9 @@ public sealed class DocumentViewModel : ReactiveObject
             return;
         }
 
-        // 既存の子の下に積む。まだ子がいなければ親の真横に置く。
-        var siblings = ChildrenOf(parent);
-        var y = siblings.Count == 0
-            ? parent.Y
-            : siblings.Max(n => n.Y + n.Height) + VerticalGap;
+        var (x, y) = NextChildPosition(parent);
 
-        InsertNode(new NodeViewModel(
-            Guid.NewGuid(),
-            "新しいノード",
-            string.Empty,
-            parent.X + parent.Width + HorizontalGap,
-            y)
+        InsertNode(new NodeViewModel(Guid.NewGuid(), "新しいノード", string.Empty, x, y)
         {
             Parent = parent,
         });
@@ -794,12 +1045,25 @@ public sealed class DocumentViewModel : ReactiveObject
         }
 
         var siblings = ChildrenOf(parent);
-        var y = siblings.Max(n => n.Y + n.Height) + VerticalGap;
+        var y = siblings.Max(n => n.Y + n.WorldHeight) + VerticalGap;
 
         InsertNode(new NodeViewModel(Guid.NewGuid(), "新しいノード", string.Empty, node.X, y)
         {
             Parent = parent,
         });
+    }
+
+    /// <summary>
+    /// 親に子を足すときの位置。既存の子の下に積み、まだ子がいなければ親の真横に置く。
+    /// 手で足すときもツールが足すときも同じ並びになるよう、1 か所にまとめてある。
+    /// </summary>
+    private (double X, double Y) NextChildPosition(NodeViewModel parent)
+    {
+        var siblings = ChildrenOf(parent);
+
+        return (
+            parent.X + parent.WorldWidth + HorizontalGap,
+            siblings.Count == 0 ? parent.Y : siblings.Max(n => n.Y + n.WorldHeight) + VerticalGap);
     }
 
     private List<NodeViewModel> ChildrenOf(NodeViewModel parent) =>
@@ -927,14 +1191,16 @@ public sealed class DocumentViewModel : ReactiveObject
         // 子ノードを足すときと同じ場所に置く。かたまりの中の位置関係は崩したくないので、
         // 全体を同じ量だけずらして、左上のノードがその場所に来るようにする。
         var siblings = ChildrenOf(target);
-        var offsetX = target.X + target.Width + HorizontalGap - created.Min(n => n.X);
-        var offsetY = (siblings.Count == 0 ? target.Y : siblings.Max(n => n.Y + n.Height) + VerticalGap)
+        var offsetX = target.X + target.WorldWidth + HorizontalGap - created.Min(n => n.X);
+        var offsetY = (siblings.Count == 0 ? target.Y : siblings.Max(n => n.Y + n.WorldHeight) + VerticalGap)
                       - created.Min(n => n.Y);
 
-        foreach (var node in created)
+        // ずらすのは、かたまりの根だけでよい。子は親からの相対で置かれているので付いてくる。
+        // 全部に掛けると、親のぶんと自分のぶんで二重にずれる。
+        foreach (var root in roots)
         {
-            node.X += offsetX;
-            node.Y += offsetY;
+            root.X += offsetX;
+            root.Y += offsetY;
         }
 
         foreach (var root in roots)
@@ -976,8 +1242,11 @@ public sealed class DocumentViewModel : ReactiveObject
     /// <summary>
     /// 選択のうち、他の選択ノードの子孫になっていないものだけを返す。
     /// 親と子を両方選んでいても、部分木を二重に扱わないようにするため。
+    ///
+    /// ドラッグも同じ理由でこれを使う。親を動かせば子は付いてくるので、
+    /// 子まで動かすと移動量が二重に掛かってしまう。
     /// </summary>
-    private List<NodeViewModel> SelectionRoots()
+    public List<NodeViewModel> SelectionRoots()
     {
         var selected = SelectedNodes.ToHashSet();
         return SelectedNodes.Where(node => !HasSelectedAncestor(node, selected)).ToList();
@@ -1044,6 +1313,8 @@ public sealed class DocumentViewModel : ReactiveObject
             var node = new NodeViewModel(Guid.NewGuid(), dto.ResolveTitle(), dto.Body, dto.X, dto.Y, dto.Link)
             {
                 IsCollapsed = dto.Collapsed,
+                AreChildrenHidden = dto.ChildrenCollapsed,
+                Extra = dto.Extra,
             };
 
             // 制作日・更新日は引き継ぐ。別のファイルへ移したときに、いつ書いたものかを失わないため。
@@ -1071,6 +1342,9 @@ public sealed class DocumentViewModel : ReactiveObject
             }
         }
 
+        // 読み込みと同じく、親を繋いだあとに置き方を入れる。
+        ApplyTransforms(OrderTopDown(pairs));
+
         var all = pairs.Select(p => p.Node).ToList();
         roots = all.Where(n => n.Parent is null).ToList();
 
@@ -1096,6 +1370,89 @@ public sealed class DocumentViewModel : ReactiveObject
         if (SelectedNode is { } node)
         {
             node.IsEditing = true;
+        }
+    }
+
+    /// <summary>
+    /// 保存された置き方をノードへ入れる。<paramref name="topDown"/> は親が先に来る順であること
+    /// （親の倍率が子の世界での位置に効くので、先に親を確定させないと食い違いの判定を誤る）。
+    ///
+    /// <see cref="MindMapNodeDto.X"/> / <see cref="MindMapNodeDto.Y"/> と食い違っていたら、
+    /// そちらを正として相対位置を組み直す。置き方を知らない版や DeviceMap で動かして
+    /// 保存された、と解釈するため。
+    /// </summary>
+    private static void ApplyTransforms(IEnumerable<(MindMapNodeDto Dto, NodeViewModel Node)> topDown)
+    {
+        foreach (var (dto, node) in topDown)
+        {
+            // Version 9 より前のファイル。X / Y から組んだ相対位置をそのまま使う。
+            if (dto.Transform is not { } transform)
+            {
+                continue;
+            }
+
+            node.RotationX = transform.RotationX;
+            node.RotationY = transform.RotationY;
+            node.RotationZ = transform.RotationZ;
+
+            node.SetLocalScale(transform.ScaleX, transform.ScaleY, transform.ScaleZ);
+            node.SetLocalPosition(transform.PositionX, transform.PositionY, transform.PositionZ);
+
+            if (Math.Abs(node.X - dto.X) > PositionTolerance
+                || Math.Abs(node.Y - dto.Y) > PositionTolerance)
+            {
+                node.SetWorldPosition(dto.X, dto.Y);
+            }
+        }
+    }
+
+    /// <summary>親から順に並べ直す。読み込んだ木の深さで並べるだけ。</summary>
+    private static List<(MindMapNodeDto Dto, NodeViewModel Node)> OrderTopDown(
+        IEnumerable<(MindMapNodeDto Dto, NodeViewModel Node)> pairs)
+    {
+        static int Depth(NodeViewModel node)
+        {
+            var depth = 0;
+            for (var current = node.Parent; current is not null; current = current.Parent)
+            {
+                depth++;
+            }
+
+            return depth;
+        }
+
+        return pairs.OrderBy(pair => Depth(pair.Node)).ToList();
+    }
+
+    /// <summary>
+    /// ノードのリンク先から小さな絵を作り直す。作れなければ絵を外すだけ
+    /// （リンクを画像から文書に差し替えたときに、前の絵が残らないようにする）。
+    ///
+    /// 待たない。絵は出来次第あとから入るもので、それまではノードが本文だけで描かれる。
+    /// 未保存の印も立てない（絵はファイルに保存しないので、変わっても保存すべきものは増えない）。
+    /// </summary>
+    private void RefreshThumbnail(NodeViewModel node)
+    {
+        var path = LinkPathResolver.Resolve(node.Link, CurrentFilePath);
+        var pending = _thumbnails.GetAsync(path);
+
+        if (pending.IsCompletedSuccessfully)
+        {
+            node.Thumbnail = pending.Result;
+            return;
+        }
+
+        _ = Assign(pending);
+
+        async Task Assign(Task<object?> task)
+        {
+            var image = await task;
+
+            // 待っている間にリンクが変わっていたら、古い絵は入れない。
+            if (LinkPathResolver.Resolve(node.Link, CurrentFilePath) == path)
+            {
+                node.Thumbnail = image;
+            }
         }
     }
 
@@ -1130,14 +1487,19 @@ public sealed class DocumentViewModel : ReactiveObject
             parent.HasChildren = true;
         }
 
+        RefreshThumbnail(node);
+
         _nodeSubscriptions[node.Id] = new CompositeDisposable(
             node.Changed
                 .Where(e => e.PropertyName is nameof(NodeViewModel.Title)
                     or nameof(NodeViewModel.Body)
                     or nameof(NodeViewModel.Link)
                     or nameof(NodeViewModel.IsCollapsed)
+                    or nameof(NodeViewModel.AreChildrenHidden)
                     or nameof(NodeViewModel.X)
-                    or nameof(NodeViewModel.Y))
+                    or nameof(NodeViewModel.Y)
+                    or nameof(NodeViewModel.WorldScaleX)
+                    or nameof(NodeViewModel.WorldScaleY))
                 .Subscribe(e =>
                 {
                     // 更新日は「内容」を変えたときだけ進める。位置移動や表示の大小は含めない。
@@ -1146,6 +1508,12 @@ public sealed class DocumentViewModel : ReactiveObject
                         or nameof(NodeViewModel.Link))
                     {
                         node.UpdatedAt = DateTimeOffset.Now;
+                    }
+
+                    // リンクを差し替えたら、絵も差し替える。
+                    if (e.PropertyName is nameof(NodeViewModel.Link))
+                    {
+                        RefreshThumbnail(node);
                     }
 
                     IsDirty = true;
@@ -1173,14 +1541,46 @@ public sealed class DocumentViewModel : ReactiveObject
         }
 
         _activeEdit = null;
+        PushContentChange(node, (edit.Title, edit.Body, edit.Link));
+    }
 
-        if (edit.Title == node.Title && edit.Body == node.Body && edit.Link == node.Link)
+    /// <summary>
+    /// キャンバスの外（ビューアの本文欄）で内容を編集し始めたときに呼ぶ。
+    /// ノードの見た目は変えず、Undo のまとまりだけを作る。
+    /// キャンバス上の編集とは別の控えに持ち、取り違えが起きないようにする。
+    /// </summary>
+    public void BeginExternalEdit(NodeViewModel node)
+    {
+        // 別のノードに移ったときは、前のぶんをそこで確定させる。
+        if (_externalEdit is { } previous && !ReferenceEquals(previous.Node, node))
+        {
+            EndExternalEdit(previous.Node);
+        }
+
+        _externalEdit ??= (node, node.Title, node.Body, node.Link);
+    }
+
+    /// <summary>編集を終えたときに呼ぶ。始めた時点から変わっていれば 1 回の Undo として積む。</summary>
+    public void EndExternalEdit(NodeViewModel node)
+    {
+        if (_externalEdit is not { } edit || !ReferenceEquals(edit.Node, node))
+        {
+            return;
+        }
+
+        _externalEdit = null;
+        PushContentChange(node, (edit.Title, edit.Body, edit.Link));
+    }
+
+    /// <summary>編集を始めた時点と今を比べ、変わっていれば 1 回ぶんの Undo として積む。</summary>
+    private void PushContentChange(NodeViewModel node, (string Title, string Body, string Link) before)
+    {
+        if (before.Title == node.Title && before.Body == node.Body && before.Link == node.Link)
         {
             return;
         }
 
         // タイトル・本文・リンクはひとつの編集操作なので、まとめて 1 回の Undo にする。
-        var before = (edit.Title, edit.Body, edit.Link);
         var after = (node.Title, node.Body, node.Link);
 
         _history.Push(new DelegateUndoableAction(
@@ -1239,6 +1639,8 @@ public sealed class DocumentViewModel : ReactiveObject
     {
         ClearSelection();
         _activeEdit = null;
+        _externalEdit = null;
+        _documentExtra = null;
 
         foreach (var connection in Connections)
         {
@@ -1260,6 +1662,7 @@ public sealed class DocumentViewModel : ReactiveObject
     {
         Version = MindMapDocument.CurrentVersion,
         Nodes = Nodes.Select(n => ToDto(n, n.Parent?.Id)).ToList(),
+        Extra = _documentExtra,
     };
 
     private static MindMapNodeDto ToDto(NodeViewModel node, Guid? parentId) => new()
@@ -1268,20 +1671,45 @@ public sealed class DocumentViewModel : ReactiveObject
         ParentId = parentId,
         Title = node.Title,
         Body = node.Body,
-        Link = node.Link,
+
+        // リンクは、書くときだけ Root からの相対に直す（設定と Root の下にあることが条件）。
+        // 画面の側は絶対パスのまま持っておく。ここで node.Link を書き換えてしまうと、
+        // 保存しただけで未保存の印が立ち、Undo の記録にも残ってしまう。
+        Link = LinkPathResolver.ToStoredLink(node.Link),
         Collapsed = node.IsCollapsed,
+        ChildrenCollapsed = node.AreChildrenHidden,
         CreatedAt = node.CreatedAt,
         UpdatedAt = node.UpdatedAt,
+        // 絶対位置は、置き方を知らない版と DeviceMap のために書き続ける。
         X = node.X,
         Y = node.Y,
+        Transform = new NodeTransform
+        {
+            Position = Vector3.Of(node.LocalX, node.LocalY, node.LocalZ),
+
+            // 既定のままの欄は書き出さない。ほとんどのノードは回っておらず等倍なので、
+            // 全部書くとノード 1 つが 3 倍の行数になり、ファイルを目で追えなくなる。
+            Rotation = node.RotationX == 0 && node.RotationY == 0 && node.RotationZ == 0
+                ? null
+                : Vector3.Of(node.RotationX, node.RotationY, node.RotationZ),
+            Scale = node.ScaleX == 1 && node.ScaleY == 1 && node.ScaleZ == 1
+                ? null
+                : Vector3.Of(node.ScaleX, node.ScaleY, node.ScaleZ),
+        },
+
+        // 知らない欄はそのまま書き戻す。読んだときに捨てていないので、
+        // このアプリが知らないパッケージの情報もファイルに残る。
+        Extra = node.Extra,
     };
 
     private void LoadDocument(MindMapDocument document)
     {
         Clear();
+        _documentExtra = document.Extra;
 
         // 親子を結ぶ前に全ノードを実体化しておく（ファイル内の並び順に依存しないため）。
         var byId = new Dictionary<Guid, NodeViewModel>();
+        var pairs = new List<(MindMapNodeDto Dto, NodeViewModel Node)>();
         foreach (var dto in document.Nodes)
         {
             // 旧形式（Version 1）のファイルはタイトルが Text 欄に入っている。
@@ -1289,6 +1717,8 @@ public sealed class DocumentViewModel : ReactiveObject
             var node = new NodeViewModel(dto.Id, dto.ResolveTitle(), dto.Body, dto.X, dto.Y, dto.Link)
             {
                 IsCollapsed = dto.Collapsed,
+                AreChildrenHidden = dto.ChildrenCollapsed,
+                Extra = dto.Extra,
             };
 
             // 保存済みの日時があれば復元する。無い（Version 4 以前の）ファイルは
@@ -1304,6 +1734,7 @@ public sealed class DocumentViewModel : ReactiveObject
             }
 
             byId[dto.Id] = node;
+            pairs.Add((dto, node));
         }
 
         foreach (var dto in document.Nodes)
@@ -1315,6 +1746,10 @@ public sealed class DocumentViewModel : ReactiveObject
                 byId[dto.Id].Parent = parent;
             }
         }
+
+        // 置き方は親を繋いだあとに入れる（相対位置は親が決まらないと世界での位置にならない）。
+        // AddNode より前に済ませるのは、監視を張る前に入れて未保存扱いにしないため。
+        ApplyTransforms(OrderTopDown(pairs));
 
         foreach (var node in byId.Values)
         {

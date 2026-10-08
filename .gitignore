@@ -28,7 +28,7 @@ _ReSharper*/
 
 # NuGet
 *.nupkg
-packages/
+/packages/
 !**/packages/build/
 
 # Publish / installer output

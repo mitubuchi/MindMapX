@@ -32,6 +32,12 @@ public partial class MainWindow : Window
     private Point _panStartPointerPosition;
     private Vector _panStartOffset;
 
+    /// <summary>ビューアの幅をドラッグで変えている最中か。</summary>
+    private bool _resizingViewer;
+
+    private double _resizeStartWidth;
+    private Point _resizeStartPointerPosition;
+
     /// <summary>スクロール位置を復元している間は、その動きを記録し返さないようにする。</summary>
     private bool _restoringScroll;
 
@@ -611,6 +617,52 @@ public partial class MainWindow : Window
         _isPanning = false;
         e.Pointer.Capture(null);
         scroller.Cursor = Cursor.Default;
+        e.Handled = true;
+    }
+
+    // ------------------------------------------------------------ ビューアの幅
+
+    /// <summary>
+    /// ビューアとキャンバスの間の帯をドラッグして幅を変える。
+    /// GridSplitter を使わないのは、DockPanel のままで済ませるため。
+    /// 掴んだ時点を基準に測るので、上限に当たっても位置がずれない。
+    /// </summary>
+    private void ViewerSplitter_PointerPressed(object? sender, PointerPressedEventArgs e)
+    {
+        if (ViewModel is null || sender is not Control splitter
+            || !e.GetCurrentPoint(splitter).Properties.IsLeftButtonPressed)
+        {
+            return;
+        }
+
+        _resizingViewer = true;
+        _resizeStartWidth = ViewModel.Viewer.Width;
+        _resizeStartPointerPosition = e.GetPosition(this);
+        e.Pointer.Capture(splitter);
+        e.Handled = true;
+    }
+
+    private void ViewerSplitter_PointerMoved(object? sender, PointerEventArgs e)
+    {
+        if (!_resizingViewer || ViewModel is null)
+        {
+            return;
+        }
+
+        // 左へ動かすほど広がる。行き過ぎてキャンバスが潰れないよう、幅は ViewModel 側で丸める。
+        var delta = _resizeStartPointerPosition.X - e.GetPosition(this).X;
+        ViewModel.Viewer.Resize(_resizeStartWidth + delta, Bounds.Width);
+    }
+
+    private void ViewerSplitter_PointerReleased(object? sender, PointerReleasedEventArgs e)
+    {
+        if (!_resizingViewer)
+        {
+            return;
+        }
+
+        _resizingViewer = false;
+        e.Pointer.Capture(null);
         e.Handled = true;
     }
 

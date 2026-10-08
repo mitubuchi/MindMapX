@@ -85,6 +85,9 @@ public static class Icons
     /// </summary>
     public static readonly Geometry File = Parse("M6,3 H14 L18,7 V21 H6 Z M14,3 V7 H18 M9,12 H15 M9,16 H15");
 
+    /// <summary>ビューア：右側に欄を持つ窓</summary>
+    public static readonly Geometry Viewer = Parse("M3,5 H21 V19 H3 Z M14,5 V19 M16,9 H19 M16,12 H19 M16,15 H18");
+
     /// <summary>展開中に出す「小さくたたむ」印（上向き山）。</summary>
     public static readonly Geometry ChevronUp = Parse("M6,15 L12,9 L18,15");
 

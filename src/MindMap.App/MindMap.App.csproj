@@ -31,6 +31,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\MindMap.Core\MindMap.Core.csproj" />
+    <!-- パッケージとの契約。plugins のパッケージはこれを実装して画面やサムネイルを渡してくる。 -->
+    <ProjectReference Include="..\MindMapX.Abstractions\MindMapX.Abstractions.csproj" />
   </ItemGroup>
 
 </Project>

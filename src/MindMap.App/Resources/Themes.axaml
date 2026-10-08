@@ -138,6 +138,71 @@
         </Style>
     </ControlTheme>
 
+    <!--
+        ツールバーの入切ボタン（ビューアの開閉）。見た目は ToolBarButton と同じで、
+        入っている間は背景を塗って示す。
+    -->
+    <ControlTheme x:Key="ToolBarToggleButton" TargetType="ToggleButton">
+        <Setter Property="Width" Value="32" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="4">
+                    <Path Data="{TemplateBinding Tag}"
+                          Width="16"
+                          Height="16"
+                          Stretch="Uniform"
+                          Stroke="{StaticResource GlyphBrush}"
+                          StrokeThickness="1.6"
+                          StrokeJoin="Round"
+                          StrokeLineCap="Round"
+                          HorizontalAlignment="Center"
+                          VerticalAlignment="Center" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#DDE3EA" />
+        </Style>
+        <Style Selector="^:checked /template/ Border#Backdrop">
+            <Setter Property="Background" Value="#D3E3FB" />
+        </Style>
+    </ControlTheme>
+
+    <!-- ビューアの見出しにある、本文とリンク先を切り替えるボタン。選んだ側を塗って示す。 -->
+    <ControlTheme x:Key="ViewerTabButton" TargetType="RadioButton">
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Padding" Value="10,3" />
+        <Setter Property="Margin" Value="0,0,4,0" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Foreground" Value="{StaticResource BodyBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <ControlTemplate>
+                <Border Name="Backdrop"
+                        Background="{TemplateBinding Background}"
+                        CornerRadius="4"
+                        Padding="{TemplateBinding Padding}">
+                    <ContentPresenter Content="{TemplateBinding Content}"
+                                      Foreground="{TemplateBinding Foreground}" />
+                </Border>
+            </ControlTemplate>
+        </Setter>
+
+        <Style Selector="^:pointerover">
+            <Setter Property="Background" Value="#E4EEFC" />
+        </Style>
+        <Style Selector="^:checked">
+            <Setter Property="Background" Value="{StaticResource LinkBrush}" />
+            <Setter Property="Foreground" Value="White" />
+        </Style>
+    </ControlTheme>
+
     <!-- タブを閉じるボタン。ふだんは控えめに、ホバーで背景を出す。 -->
     <ControlTheme x:Key="TabCloseButton" TargetType="Button">
         <Setter Property="Width" Value="18" />

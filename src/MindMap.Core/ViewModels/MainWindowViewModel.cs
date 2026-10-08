@@ -4,6 +4,7 @@ using System.IO;
 using System.Reactive;
 using System.Reactive.Linq;
 using MindMap.Services;
+using MindMap.Services.Viewers;
 using ReactiveUI;
 
 namespace MindMap.ViewModels;
@@ -16,19 +17,31 @@ public sealed class MainWindowViewModel : ReactiveObject
 {
     private readonly ObservableAsPropertyHelper<string> _title;
 
-    /// <summary>クリップボードの読み書き。OS ごとに違うので UI 側から受け取り、各タブへ配る。</summary>
-    private readonly INodeClipboard _clipboard;
-
     /// <summary>「無題 1」「無題 2」… と通し番号を振るための連番。</summary>
     private int _untitledCounter;
 
     private DocumentViewModel? _activeDocument;
 
+    private readonly INodeThumbnailSource _thumbnails;
+
+    /// <summary>クリップボードの読み書き。OS ごとに違うので UI 側から受け取り、各タブへ配る。</summary>
+    private readonly INodeClipboard _clipboard;
+
+    /// <param name="viewers">リンク先を描く係。省略するとビューアには案内だけが出る。</param>
+    /// <param name="thumbnails">
+    /// ノードのサムネイルを作る係。ウィンドウで 1 つにして、作業スレッドと控えを
+    /// タブをまたいで使い回す（同じ画像を別のタブで開いても作り直さない）。省略すると絵は出ない。
+    /// </param>
     /// <param name="clipboard">
     /// 省略すると何もしないクリップボードになる（画面につながっていない状態でも組み立てられるように）。
     /// </param>
-    public MainWindowViewModel(INodeClipboard? clipboard = null)
+    public MainWindowViewModel(
+        ILinkViewerHost? viewers = null,
+        INodeThumbnailSource? thumbnails = null,
+        INodeClipboard? clipboard = null)
     {
+        Viewer = new ViewerViewModel(viewers ?? NullLinkViewerHost.Instance);
+        _thumbnails = thumbnails ?? NullNodeThumbnailSource.Instance;
         _clipboard = clipboard ?? NullNodeClipboard.Instance;
 
         var hasActiveDocument = this.WhenAnyValue(x => x.ActiveDocument).Select(d => d is not null);
@@ -58,6 +71,7 @@ public sealed class MainWindowViewModel : ReactiveObject
         CloseActiveDocumentCommand = ReactiveCommand.CreateFromTask(
             () => CloseDocumentAsync(ActiveDocument!),
             hasActiveDocument);
+        OpenSettingsCommand = ReactiveCommand.CreateFromObservable(() => ShowSettings.Handle(Unit.Default));
 
         Observable
             .Merge(
@@ -66,7 +80,8 @@ public sealed class MainWindowViewModel : ReactiveObject
                 OpenLinkCommand.ThrownExceptions,
                 SaveAllCommand.ThrownExceptions,
                 CloseDocumentCommand.ThrownExceptions,
-                CloseActiveDocumentCommand.ThrownExceptions)
+                CloseActiveDocumentCommand.ThrownExceptions,
+                OpenSettingsCommand.ThrownExceptions)
             .SelectMany(ex => ShowError.Handle(ex.Message))
             .Subscribe();
 
@@ -76,6 +91,18 @@ public sealed class MainWindowViewModel : ReactiveObject
             .ToProperty(this, x => x.Title);
 
         AddDocument(CreateDocument());
+
+        // ビューアは選択中のノードを追う。見る先はタブごとに変わるので、
+        // 開いているタブが変わるたびに、そのタブの選択へ監視を張り替える。
+        // 相対リンクを解く基準がタブ側にあるため、ノードだけでなくタブも一緒に渡す。
+        this.WhenAnyValue(x => x.ActiveDocument)
+            .Select(document => document is null
+                ? Observable.Return((Document: (DocumentViewModel?)null, Node: (NodeViewModel?)null))
+                : document
+                    .WhenAnyValue(x => x.SelectedNode)
+                    .Select(node => (Document: (DocumentViewModel?)document, Node: node)))
+            .Switch()
+            .Subscribe(t => Viewer.SetTarget(t.Document, t.Node));
     }
 
     public ObservableCollection<DocumentViewModel> Documents { get; } = new();
@@ -87,6 +114,9 @@ public sealed class MainWindowViewModel : ReactiveObject
     }
 
     public string Title => _title.Value;
+
+    /// <summary>画面右のビューア。選択中のノードの本文やリンク先を見せる。</summary>
+    public ViewerViewModel Viewer { get; }
 
     public ReactiveCommand<Unit, Unit> NewDocumentCommand { get; }
 
@@ -102,6 +132,9 @@ public sealed class MainWindowViewModel : ReactiveObject
     public ReactiveCommand<Unit, Unit> SaveAllCommand { get; }
 
     public ReactiveCommand<Unit, Unit> CloseActiveDocumentCommand { get; }
+
+    /// <summary>設定ウィンドウを開く。ツールバーのいちばん右のボタンから。</summary>
+    public ReactiveCommand<Unit, Unit> OpenSettingsCommand { get; }
 
     /// <summary>「開く」ダイアログを View 側に依頼する。キャンセル時は null を返す。</summary>
     public Interaction<Unit, string?> ShowOpenFileDialog { get; } = new();
@@ -119,6 +152,18 @@ public sealed class MainWindowViewModel : ReactiveObject
 
     /// <summary>URL やファイルを OS に渡して開いてもらう。</summary>
     public Interaction<string, Unit> OpenExternal { get; } = new();
+
+    /// <summary>設定ウィンドウを出す。閉じるまで戻らない。</summary>
+    public Interaction<Unit, Unit> ShowSettings { get; } = new();
+
+    /// <summary>
+    /// ノードの大きさを測り直してもらう。
+    ///
+    /// ノードの幅と高さは View が実際に描いて初めて決まる（<c>Node_SizeChanged</c>）。
+    /// 本文を隠してから並べるとき、隠した直後の値はまだ古いままなので、
+    /// 並べる前に一度だけ View にレイアウトを回してもらう必要がある。
+    /// </summary>
+    public Interaction<Unit, Unit> MeasureNodes { get; } = new();
 
     /// <summary>ウィンドウを閉じてよいか。未保存のタブがあれば 1 つずつ確認する。</summary>
     public async Task<bool> CanCloseAsync()
@@ -138,12 +183,13 @@ public sealed class MainWindowViewModel : ReactiveObject
     }
 
     private DocumentViewModel CreateDocument() =>
-        new(
-            $"無題 {++_untitledCounter}",
+        new($"無題 {++_untitledCounter}",
             ShowSaveFileDialog,
             ShowLinkFileDialog,
             ConfirmSaveChanges,
             ShowError,
+            MeasureNodes,
+            _thumbnails,
             _clipboard);
 
     private void AddDocument(DocumentViewModel document)
@@ -271,52 +317,46 @@ public sealed class MainWindowViewModel : ReactiveObject
             return;
         }
 
-        await OpenExternal.Handle(link);
+        // 相対パスのままシェルに渡すと、アプリの作業フォルダーを基準に探されてしまう。
+        // リンク元のファイルの場所を基準に直してから渡す。
+        await OpenExternal.Handle(ResolveLocalPath(link) ?? link);
     }
 
     /// <summary>
-    /// リンクが手元のマインドマップファイルを指しているならその絶対パスを返す。
-    /// 相対パスは、リンク元のドキュメントが置かれた場所を基準に解く。
+    /// リンクが手元のファイルやフォルダーを指しているならその絶対パスを返す。
+    /// http/https/mailto など、ファイル以外を指す URL は対象外。
+    ///
+    /// 相対パスの解き方そのものは <see cref="LinkPathResolver"/> に任せる。
+    /// ここで自前に解いていたときは設定の Root Path を知らず、Root からの相対で
+    /// 書かれたリンクをリンク元のフォルダー基準で解いて、開けないことがあった
+    /// （ビューアやサムネイルは正しく出るのに、開くときだけ違う場所を見る状態になる）。
     /// </summary>
+    private string? ResolveLocalPath(string link)
+    {
+        // file: 以外のスキームが付いていれば、手元のファイルではない。
+        if (Uri.TryCreate(link, UriKind.Absolute, out var uri) &&
+            !uri.IsFile)
+        {
+            return null;
+        }
+
+        return LinkPathResolver.Resolve(link, ActiveDocument?.CurrentFilePath);
+    }
+
+    /// <summary>リンクが手元のマインドマップファイルを指しているならその絶対パスを返す。</summary>
     private string? ResolveMindMapPath(string link)
     {
-        // http/https/mailto など、ファイル以外を指す URL はここでは扱わない。
-        if (Uri.TryCreate(link, UriKind.Absolute, out var uri) && !uri.IsFile)
+        if (ResolveLocalPath(link) is not { } path)
         {
             return null;
         }
 
-        try
-        {
-            var path = link;
-            if (!Path.IsPathRooted(path))
-            {
-                if (ActiveDocument?.CurrentFilePath is not { } baseFile)
-                {
-                    return null;
-                }
+        var isMindMap = string.Equals(
+            Path.GetExtension(path),
+            MindMapFileService.FileExtension,
+            StringComparison.OrdinalIgnoreCase);
 
-                path = Path.Combine(Path.GetDirectoryName(baseFile) ?? string.Empty, path);
-            }
-
-            path = Path.GetFullPath(path);
-
-            var isMindMap = string.Equals(
-                Path.GetExtension(path),
-                MindMapFileService.FileExtension,
-                StringComparison.OrdinalIgnoreCase);
-
-            return isMindMap && File.Exists(path) ? path : null;
-        }
-        catch (ArgumentException)
-        {
-            // パスに使えない文字が入っていた場合。リンクとしては外部に投げる。
-            return null;
-        }
-        catch (NotSupportedException)
-        {
-            return null;
-        }
+        return isMindMap && File.Exists(path) ? path : null;
     }
 
     private async Task CloseDocumentAsync(DocumentViewModel document)

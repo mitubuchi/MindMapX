@@ -1,0 +1,100 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="using:MindMap.Converters"
+             xmlns:viewers="using:MindMap.Services.Viewers"
+             x:Class="MindMap.Views.FolderListView"
+             x:DataType="viewers:FolderListModel">
+    <!--
+        フォルダーの中身の一覧。桁は Grid の列に任せる（文字を詰めて揃えると、
+        日本語の名前が入ったときに書体しだいでずれる）。
+        名前の左のアイコンは、ノードの脇のリンクボタンと同じ出し方（アプリのアイコン、
+        引けなければ種類ごとの線画）。行の DataContext が Link を持っているのでそのまま使える。
+    -->
+    <Panel>
+        <DockPanel IsVisible="{Binding HasEntries}">
+            <TextBlock DockPanel.Dock="Top"
+                       Margin="0,0,0,6"
+                       FontSize="11"
+                       Foreground="{StaticResource BodyBrush}"
+                       Text="{Binding Summary}" />
+
+            <!-- 数が多いフォルダーでも重くならないよう、見えている行だけ作る（ListBox の既定）。 -->
+            <ListBox ItemsSource="{Binding Entries}"
+                     Grid.IsSharedSizeScope="True"
+                     BorderThickness="0"
+                     Background="Transparent"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     KeyDown="List_KeyDown">
+                <ListBox.Styles>
+                    <Style Selector="ListBoxItem">
+                        <Setter Property="Padding" Value="2,1" />
+                        <Setter Property="MinHeight" Value="0" />
+                    </Style>
+                </ListBox.Styles>
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="viewers:FolderEntry">
+                        <!-- 行そのものに付ける。余白をダブルクリックしても何も起きないように。 -->
+                        <Grid Background="Transparent" DoubleTapped="Row_DoubleTapped">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="Size" />
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="Modified" />
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 線画は 16、アプリのアイコンは 18 で幅が違う。
+                                 揃えないと名前の開始位置が行ごとに 2px ずれる。 -->
+                            <Panel Width="18" Height="18" VerticalAlignment="Center">
+                                <Image Name="AppIcon"
+                                       Width="18"
+                                       Height="18"
+                                       Source="{Binding Link, Converter={x:Static conv:AppConverters.LinkIcon}}" />
+                                <Path Data="{Binding Link, Converter={x:Static conv:AppConverters.LinkGlyph}}"
+                                      IsVisible="{Binding #AppIcon.Source, Converter={x:Static ObjectConverters.IsNull}}"
+                                      Width="16"
+                                      Height="16"
+                                      Stretch="Uniform"
+                                      Stroke="{StaticResource LinkBrush}"
+                                      StrokeThickness="1.7"
+                                      StrokeJoin="Round"
+                                      StrokeLineCap="Round"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center" />
+                            </Panel>
+
+                            <TextBlock Grid.Column="1"
+                                       Margin="6,0,10,0"
+                                       VerticalAlignment="Center"
+                                       FontSize="12"
+                                       TextTrimming="CharacterEllipsis"
+                                       Text="{Binding Name}"
+                                       ToolTip.Tip="{Binding Link}" />
+                            <TextBlock Grid.Column="2"
+                                       Margin="0,0,10,0"
+                                       VerticalAlignment="Center"
+                                       TextAlignment="Right"
+                                       FontSize="11"
+                                       Foreground="{StaticResource BodyBrush}"
+                                       Text="{Binding Size}" />
+                            <TextBlock Grid.Column="3"
+                                       VerticalAlignment="Center"
+                                       FontSize="11"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       Text="{Binding Modified}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </DockPanel>
+
+        <!-- 空・権限が無いなど、一覧を出せないとき。 -->
+        <TextBlock Text="{Binding Message}"
+                   TextWrapping="Wrap"
+                   TextAlignment="Center"
+                   Foreground="{StaticResource MutedBrush}"
+                   FontSize="12"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   IsVisible="{Binding !HasEntries}" />
+    </Panel>
+</UserControl>

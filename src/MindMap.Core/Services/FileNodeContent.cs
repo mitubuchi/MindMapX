@@ -16,6 +16,13 @@ public sealed record FileNodeContent(
     private const string DateFormat = "yyyy/MM/dd HH:mm:ss";
 
     /// <summary>
+    /// 画像・映像・音声の大きさや撮影時の設定を、本文の行にして返す係。
+    /// 読み方が OS ごとに違う（Windows はプロパティシステム）ので、起動時に UI 側が差し込む。
+    /// 差し込まれていない OS では、その行が増えないだけ。
+    /// </summary>
+    public static Func<string, IEnumerable<string>>? DescribeMedia { get; set; }
+
+    /// <summary>
     /// パスから内容を作る。存在しない、または読めない場合は null。
     /// 属性が読めなくてもノード自体は作れるよう、日時とサイズだけを諦める作りにしている。
     /// </summary>
@@ -40,7 +47,14 @@ public sealed record FileNodeContent(
 
             if (info is FileInfo file)
             {
-                lines.Add($"サイズ: {FormatSize(file.Length)}");
+                lines.Add($"サイズ: {ByteSize.Describe(file.Length)}");
+
+                // 画像・映像・音声なら、大きさや撮影時の設定を続けて並べる。
+                // 持っていないファイルでは 1 行も増えない。
+                if (DescribeMedia is { } describe)
+                {
+                    lines.AddRange(describe(path));
+                }
             }
             else
             {
@@ -66,21 +80,4 @@ public sealed record FileNodeContent(
         }
     }
 
-    /// <summary>バイト数を読みやすい単位にする。元のバイト数も併記する。</summary>
-    private static string FormatSize(long bytes)
-    {
-        string[] units = ["バイト", "KB", "MB", "GB", "TB"];
-
-        var size = (double)bytes;
-        var unit = 0;
-        while (size >= 1024 && unit < units.Length - 1)
-        {
-            size /= 1024;
-            unit++;
-        }
-
-        return unit == 0
-            ? $"{bytes:N0} バイト"
-            : $"{size:N1} {units[unit]} ({bytes:N0} バイト)";
-    }
 }

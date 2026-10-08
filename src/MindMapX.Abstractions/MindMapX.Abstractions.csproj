@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      パッケージが参照する唯一のアセンブリ（WPF 版の MindMap.Abstractions にあたる）。
+      ビューアは画面そのもの（Avalonia の Control）を返し、サムネイルは Avalonia の Bitmap を返す。
+
+      WPF 版と名前を分けてあるのは、MindMapPackages で両方を同じソリューションに置いても
+      出力の DLL がぶつからないようにするため。中身の形（インターフェースの並び）は揃えてある。
+      ツールの契約は入れていない（MindMapX で使うパッケージはビューアだけのため）。
+    -->
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+
+    <AssemblyName>MindMapX.Abstractions</AssemblyName>
+    <RootNamespace>MindMapX.Abstractions</RootNamespace>
+    <Product>MindMapX</Product>
+    <Company>MindMap</Company>
+    <Copyright>Copyright © 2026</Copyright>
+
+    <!--
+      パッケージの互換判定に使う版。契約を壊す変更をしたときだけ上げる。
+      アプリの版（MindMap.Desktop.csproj の Version）とは別に動かす。
+    -->
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ホストと同じ版にする。パッケージ側の Avalonia は読み込み時にホストのものへ寄せられる。 -->
+    <PackageReference Include="Avalonia" Version="11.3.9" />
+  </ItemGroup>
+
+</Project>
